@@ -1604,9 +1604,9 @@ public class PShape implements PConstants {
     } else if (family == PRIMITIVE) {
       drawPrimitive(g);
     } else if (family == GEOMETRY) {
-      // same as path
-      drawPath(g);
-//      drawGeometry(g);
+      // Not same as path: `kind` matters.
+//      drawPath(g);
+      drawGeometry(g);
     } else if (family == PATH) {
       drawPath(g);
     }
@@ -2940,8 +2940,8 @@ public class PShape implements PConstants {
    * @webref pshape:method
    * @usage web_application
    * @brief Displaces the shape
-   * @param tx left/right translation
-   * @param ty up/down translation
+   * @param x left/right translation
+   * @param y up/down translation
    * @see PShape#rotate(float)
    * @see PShape#scale(float)
    * @see PShape#resetMatrix()
@@ -2952,7 +2952,7 @@ public class PShape implements PConstants {
   }
 
   /**
-   * @param tz forward/back translation
+   * @param z forward/back translation
    */
   public void translate(float x, float y, float z) {
     checkMatrix(3);

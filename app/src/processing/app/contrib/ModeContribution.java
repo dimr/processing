@@ -104,14 +104,14 @@ public class ModeContribution extends LocalContribution {
   public void clearClassLoader(Base base) {
     List<ModeContribution> contribModes = base.getModeContribs();
     int botherToRemove = contribModes.indexOf(this);
-    if (botherToRemove != -1) { // The poor thing isn't even loaded, and we're trying to remove it...
+    // The poor thing isn't even loaded, and we're trying to remove it...
+    if (botherToRemove != -1) {
       contribModes.remove(botherToRemove);
 
       try {
+        // This cast should be safe, since the only case when loader is not a
+        // URLClassLoader is when no archives were found in the first place.
         ((URLClassLoader) loader).close();
-        // The typecast should be safe, since the only case when loader is not of
-        // type URLClassLoader is when no archives were found in the first
-        // place...
       } catch (IOException e) {
         e.printStackTrace();
       }
@@ -129,19 +129,10 @@ public class ModeContribution extends LocalContribution {
   }
 
 
-  public boolean equals(Object o) {
-    if (o == null || !(o instanceof ModeContribution)) {
-      return false;
-    }
-    ModeContribution other = (ModeContribution) o;
-    return loader.equals(other.loader) && mode.equals(other.getMode());
-  }
-
   public String initLoader(Base base, String className) throws Exception {
-
     File modeDirectory = new File(folder, getTypeName());
     if (modeDirectory.exists()) {
-      Messages.log("checking mode folder regarding " + className);
+      Messages.log("checking mode folder regarding class name " + className);
       // If no class name specified, search the main <modename>.jar for the
       // full name package and mode name.
       if (className == null) {
@@ -161,8 +152,8 @@ public class ModeContribution extends LocalContribution {
 
       ArrayList<URL> extraUrls = new ArrayList<>();
       if (imports != null && imports.size() > 0) {
-        // if the mode has any dependencies (defined as imports in mode.properties),
-        // add the dependencies to the classloader
+        // if the mode has any dependencies (defined as imports in
+        // mode.properties), add the dependencies to the classloader
 
         HashMap<String, Mode> installedModes = new HashMap<>();
         for(Mode m: base.getModeList()){
@@ -170,7 +161,7 @@ public class ModeContribution extends LocalContribution {
           installedModes.put(m.getClass().getName(), m);
         }
 
-        for(String modeImport: imports){
+        for (String modeImport: imports) {
           if (installedModes.containsKey(modeImport)) {
             Messages.log("Found mode dependency " + modeImport);
             File modeFolder = installedModes.get(modeImport).getFolder();
@@ -182,8 +173,9 @@ public class ModeContribution extends LocalContribution {
               }
             }
           } else {
-            throw new IgnorableException("Dependency mode "+ modeImport + " could not be"
-              + " found. Can't load " + className);
+            throw new IgnorableException("Can't load " + className +
+                                         " because the import " + modeImport +
+                                         " could not be found. ");
           }
         }
       }

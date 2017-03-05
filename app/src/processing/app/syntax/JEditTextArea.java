@@ -26,7 +26,6 @@ import javax.swing.undo.*;
 import javax.swing.*;
 
 import java.awt.im.InputMethodRequests;
-import java.awt.print.Printable;
 
 import processing.app.syntax.im.InputMethodSupport;
 import processing.core.PApplet;
@@ -77,7 +76,9 @@ public class JEditTextArea extends JComponent
   /** The size of the offset between the leftmost padding and the code */
   public static final int leftHandGutter = 6;
 
-  private InputMethodSupport inputMethodSupport = null;
+  private InputMethodSupport inputMethodSupport;
+
+  private TextAreaDefaults defaults;
 
   private Brackets bracketHelper = new Brackets();
 
@@ -87,6 +88,8 @@ public class JEditTextArea extends JComponent
    * @param defaults The default settings
    */
   public JEditTextArea(TextAreaDefaults defaults, InputHandler inputHandler) {
+    this.defaults = defaults;
+
     // Enable the necessary events
     enableEvents(AWTEvent.KEY_EVENT_MASK);
 
@@ -258,8 +261,8 @@ public class JEditTextArea extends JComponent
   }
 
 
-  public final Printable getPrintable() {
-    return painter.getPrintable();
+  public TextAreaDefaults getDefaults() {
+    return defaults;
   }
 
 
@@ -617,7 +620,7 @@ public class JEditTextArea extends JComponent
    * @param offset The offset, from the start of the line
    */
   public int _offsetToX(int line, int offset) {
-    TokenMarker tokenMarker = getTokenMarker();
+    TokenMarkerState tokenMarker = getTokenMarker();
 
     // Use painter's cached info for speed
     FontMetrics fm = painter.getFontMetrics();
@@ -679,7 +682,7 @@ public class JEditTextArea extends JComponent
    * @param x The x co-ordinate
    */
   public int xToOffset(int line, int x) {
-    TokenMarker tokenMarker = getTokenMarker();
+    TokenMarkerState tokenMarker = getTokenMarker();
 
     /* Use painter's cached info for speed */
     FontMetrics fm = painter.getFontMetrics();
@@ -785,25 +788,26 @@ public class JEditTextArea extends JComponent
     }
   }
 
+
   /**
    * Converts a point to an offset, from the start of the text.
    * @param x The x co-ordinate of the point
    * @param y The y co-ordinate of the point
    */
-  public int xyToOffset(int x, int y)
-  {
+  public int xyToOffset(int x, int y) {
     int line = yToLine(y);
     int start = getLineStartOffset(line);
     return start + xToOffset(line,x);
   }
 
+
   /**
    * Returns the document this text area is editing.
    */
-  public final SyntaxDocument getDocument()
-  {
+  public final SyntaxDocument getDocument() {
     return document;
   }
+
 
   /**
    * Sets the document this text area is editing.
@@ -818,6 +822,7 @@ public class JEditTextArea extends JComponent
 
     document.addDocumentListener(documentHandler);
 
+    bracketHelper.invalidate();
     select(0, 0);
     updateScrollBars();
     painter.repaint();
@@ -838,6 +843,7 @@ public class JEditTextArea extends JComponent
 
     document.addDocumentListener(documentHandler);
 
+    bracketHelper.invalidate();
     select(start, stop);
     updateScrollBars();
     setVerticalScrollPosition(scroll);
@@ -849,7 +855,7 @@ public class JEditTextArea extends JComponent
    * Returns the document's token marker. Equivalent to calling
    * <code>getDocument().getTokenMarker()</code>.
    */
-  public final TokenMarker getTokenMarker() {
+  public final TokenMarkerState getTokenMarker() {
     return document.getTokenMarker();
   }
 
@@ -1070,19 +1076,8 @@ public class JEditTextArea extends JComponent
    */
   public int getSelectionStart(int line)
   {
-    if(line == selectionStartLine)
+    if (line == selectionStartLine)
       return selectionStart;
-    else if(rectSelect)
-    {
-      Element map = document.getDefaultRootElement();
-      int start = selectionStart - map.getElement(selectionStartLine)
-      .getStartOffset();
-
-      Element lineElement = map.getElement(line);
-      int lineStart = lineElement.getStartOffset();
-      int lineEnd = lineElement.getEndOffset() - 1;
-      return Math.min(lineEnd,lineStart + start);
-    }
     else
       return getLineStartOffset(line);
   }
@@ -1120,19 +1115,8 @@ public class JEditTextArea extends JComponent
    */
   public int getSelectionStop(int line)
   {
-    if(line == selectionEndLine)
+    if (line == selectionEndLine)
       return selectionEnd;
-    else if(rectSelect)
-    {
-      Element map = document.getDefaultRootElement();
-      int end = selectionEnd - map.getElement(selectionEndLine)
-      .getStartOffset();
-
-      Element lineElement = map.getElement(line);
-      int lineStart = lineElement.getStartOffset();
-      int lineEnd = lineElement.getEndOffset() - 1;
-      return Math.min(lineEnd,lineStart + end);
-    }
     else
       return getLineStopOffset(line) - 1;
   }
@@ -1295,10 +1279,6 @@ public class JEditTextArea extends JComponent
       caretTimer.restart();
     }
 
-    // Disable rectangle select if selection start = selection end
-    if(selectionStart == selectionEnd)
-      rectSelect = false;
-
     // Clear the `magic' caret position used by up/down
     magicCaret = -1;
 
@@ -1378,54 +1358,10 @@ public class JEditTextArea extends JComponent
    */
   public final String getSelectedText()
   {
-    if(selectionStart == selectionEnd)
+    if (selectionStart == selectionEnd) {
       return null;
-
-    if(rectSelect)
-    {
-      // Return each row of the selection on a new line
-
-      Element map = document.getDefaultRootElement();
-
-      int start = selectionStart - map.getElement(selectionStartLine)
-      .getStartOffset();
-      int end = selectionEnd - map.getElement(selectionEndLine)
-      .getStartOffset();
-
-      // Certain rectangles satisfy this condition...
-      if(end < start)
-      {
-        int tmp = end;
-        end = start;
-        start = tmp;
-      }
-
-      StringBuilder sb = new StringBuilder();
-      Segment seg = new Segment();
-
-      for(int i = selectionStartLine; i <= selectionEndLine; i++)
-      {
-        Element lineElement = map.getElement(i);
-        int lineStart = lineElement.getStartOffset();
-        int lineEnd = lineElement.getEndOffset() - 1;
-        int lineLen = lineEnd - lineStart;
-
-        lineStart = Math.min(lineStart + start,lineEnd);
-        lineLen = Math.min(end - start,lineEnd - lineStart);
-
-        getText(lineStart,lineLen,seg);
-        sb.append(seg.array,seg.offset,seg.count);
-
-        if(i != selectionEndLine)
-          sb.append('\n');
-      }
-
-      return sb.toString();
-    }
-    else
-    {
-      return getText(selectionStart,
-          selectionEnd - selectionStart);
+    } else {
+      return getText(selectionStart, selectionEnd - selectionStart);
     }
   }
 
@@ -1434,67 +1370,40 @@ public class JEditTextArea extends JComponent
    * @param selectedText The replacement text for the selection
    */
   public void setSelectedText(String selectedText) {
+    setSelectedText(selectedText, false);
+  }
+
+
+  /**
+   * Replaces the selection with the specified text.
+   * @param selectedText The replacement text for the selection
+   * @param recordCompoundEdit Whether the replacement should be
+   * recorded as a compound edit
+   */
+  public void setSelectedText(String selectedText, boolean recordCompoundEdit) {
     if (!editable) {
       throw new InternalError("Text component read only");
     }
-    document.beginCompoundEdit();
+
+    if (recordCompoundEdit) {
+      document.beginCompoundEdit();
+    }
 
     try {
-      if (rectSelect) {
-        Element map = document.getDefaultRootElement();
-
-        int start = selectionStart -
-          map.getElement(selectionStartLine).getStartOffset();
-        int end = selectionEnd -
-          map.getElement(selectionEndLine).getStartOffset();
-
-        // Certain rectangles satisfy this condition...
-        if (end < start) {
-          int tmp = end;
-          end = start;
-          start = tmp;
-        }
-
-        int lastNewline = 0;
-        int currNewline = 0;
-
-        for (int i = selectionStartLine; i <= selectionEndLine; i++) {
-          Element lineElement = map.getElement(i);
-          int lineStart = lineElement.getStartOffset();
-          int lineEnd = lineElement.getEndOffset() - 1;
-          int rectStart = Math.min(lineEnd,lineStart + start);
-
-          document.remove(rectStart,Math.min(lineEnd - rectStart, end - start));
-
-          if (selectedText != null) {
-            currNewline = selectedText.indexOf('\n', lastNewline);
-            if (currNewline == -1) {
-              currNewline = selectedText.length();
-            }
-            document.insertString(rectStart, selectedText.substring(lastNewline, currNewline), null);
-            lastNewline = Math.min(selectedText.length(), currNewline + 1);
-          }
-        }
-
-        if (selectedText != null &&
-            currNewline != selectedText.length()) {
-          int offset = map.getElement(selectionEndLine).getEndOffset() - 1;
-          document.insertString(offset, "\n", null);
-          document.insertString(offset + 1,selectedText.substring(currNewline + 1), null);
-        }
-      } else {
-        document.remove(selectionStart, selectionEnd - selectionStart);
-        if (selectedText != null) {
-          document.insertString(selectionStart, selectedText,null);
-        }
+      document.remove(selectionStart, selectionEnd - selectionStart);
+      if (selectedText != null) {
+        document.insertString(selectionStart, selectedText,null);
       }
-    } catch(BadLocationException bl) {
+    } catch (BadLocationException bl) {
       bl.printStackTrace();
       throw new InternalError("Cannot replace selection");
 
     } finally {
       // No matter what happens... stops us from leaving document in a bad state
-      document.endCompoundEdit();
+      // (provided this has to be recorded as a compound edit, of course...)
+      if (recordCompoundEdit) {
+        document.endCompoundEdit();
+      }
     }
     setCaretPosition(selectionEnd);
   }
@@ -1566,7 +1475,10 @@ public class JEditTextArea extends JComponent
     // Don't overstrike if there is a selection
     if(!overwrite || selectionStart != selectionEnd)
     {
-      setSelectedText(str);
+      // record the whole operation as a compound edit if
+      // selected text is being replaced
+      boolean isSelectAndReplaceOp = (selectionStart != selectionEnd);
+      setSelectedText(str, isSelectAndReplaceOp);
       return;
     }
 
@@ -1576,11 +1488,9 @@ public class JEditTextArea extends JComponent
     int caretLineEnd = getLineStopOffset(getCaretLine());
     if(caretLineEnd - caret <= str.length())
     {
-      setSelectedText(str);
+      setSelectedText(str, false);
       return;
     }
-
-    document.beginCompoundEdit();
 
     try
     {
@@ -1590,10 +1500,6 @@ public class JEditTextArea extends JComponent
     catch(BadLocationException bl)
     {
       bl.printStackTrace();
-    }
-    finally
-    {
-      document.endCompoundEdit();
     }
   }
 
@@ -1616,24 +1522,6 @@ public class JEditTextArea extends JComponent
     painter.invalidateSelectedLines();
   }
 
-  /**
-   * Returns true if the selection is rectangular, false otherwise.
-   */
-  public final boolean isSelectionRectangular()
-  {
-    return rectSelect;
-  }
-
-  /**
-   * Sets if the selection should be rectangular.
-   * @param rectSelect True if the selection should be rectangular,
-   * false otherwise.
-   */
-  public final void setSelectionRectangular(boolean rectSelect)
-  {
-    this.rectSelect = rectSelect;
-    painter.invalidateSelectedLines();
-  }
 
   /**
    * Returns the position of the highlighted bracket (the bracket
@@ -1724,7 +1612,25 @@ public class JEditTextArea extends JComponent
    * specific to any language or version of the PDE.
    */
   public void copyAsHTML() {
-    StringBuilder cf = new StringBuilder("<html><body><pre>\n");
+    HtmlSelection formatted = new HtmlSelection("<html><body><pre>\n"
+        + getTextAsHtml(null) + "\n</pre></body></html>");
+
+    Clipboard clipboard = processing.app.ui.Toolkit.getSystemClipboard();
+    clipboard.setContents(formatted, new ClipboardOwner() {
+      public void lostOwnership(Clipboard clipboard, Transferable contents) {
+        // I don't care about ownership
+      }
+    });
+  }
+
+
+  /**
+   * Guts of copyAsHTML, minus the pre, body, and html blocks surrounding.
+   * @param doc If null, read only the selection if any, and use the active
+   *            document. Otherwise, the whole of doc is used.
+   */
+  public String getTextAsHtml(SyntaxDocument doc) {
+    StringBuilder cf = new StringBuilder();
 
     int selStart = getSelectionStart();
     int selStop = getSelectionStop();
@@ -1732,8 +1638,12 @@ public class JEditTextArea extends JComponent
     int startLine = getSelectionStartLine();
     int stopLine = getSelectionStopLine();
 
+    if (doc != null) {
+      startLine = 0;
+      stopLine = doc.getDefaultRootElement().getElementCount() - 1;
+    }
     // If no selection, convert all the lines
-    if (selStart == selStop) {
+    else if (selStart == selStop) {
       startLine = 0;
       stopLine = getLineCount() - 1;
     } else {
@@ -1742,55 +1652,45 @@ public class JEditTextArea extends JComponent
         stopLine--;
       }
     }
+    if (doc == null) {
+      doc = getDocument();
+    }
 
     // Read the code line by line
     for (int i = startLine; i <= stopLine; i++) {
-      emitAsHTML(cf, i);
+      emitAsHTML(cf, i, doc);
     }
 
-    cf.append("\n</pre></body></html>");
-
-    HtmlSelection formatted = new HtmlSelection(cf.toString());
-
-    Clipboard clipboard = processing.app.ui.Toolkit.getSystemClipboard();
-    clipboard.setContents(formatted, new ClipboardOwner() {
-      public void lostOwnership(Clipboard clipboard, Transferable contents) {
-        // i don't care about ownership
-      }
-    });
+    return cf.toString();
   }
 
 
-  private void emitAsHTML(StringBuilder cf, int line) {
+  private void emitAsHTML(StringBuilder cf, int line, SyntaxDocument doc) {
+    // Almost static; only needs the painter for a color scheme.
     Segment segment = new Segment();
-    getLineText(line, segment);
+    try {
+      Element element = doc.getDefaultRootElement().getElement(line);
+      int start = element.getStartOffset();
+      int stop  = element.getEndOffset();
+      doc.getText(start, stop - start - 1, segment);
+    } catch (BadLocationException e) { return; }
 
     char[] segmentArray = segment.array;
     int limit = segment.getEndIndex();
     int segmentOffset = segment.offset;
     int segmentCount = segment.count;
 
-    TokenMarker tokenMarker = getTokenMarker();
+    TokenMarkerState tokenMarker = doc.getTokenMarker();
     // If syntax coloring is disabled, do simple translation
     if (tokenMarker == null) {
       for (int j = 0; j < segmentCount; j++) {
         char c = segmentArray[j + segmentOffset];
-        //cf = cf.append(c);
         appendAsHTML(cf, c);
       }
     } else {
       // If syntax coloring is enabled, we have to do this
       // because tokens can vary in width
-      Token tokens;
-      if ((painter.getCurrentLineIndex() == line) &&
-          (painter.getCurrentLineTokens() != null)) {
-        tokens = painter.getCurrentLineTokens();
-
-      } else {
-        painter.setCurrentLineIndex(line);
-        painter.setCurrentLineTokens(tokenMarker.markTokens(segment, line));
-        tokens = painter.getCurrentLineTokens();
-      }
+      Token tokens = tokenMarker.markTokens(segment, line);
 
       int offset = 0;
       SyntaxStyle[] styles = painter.getStyles();
@@ -1798,10 +1698,8 @@ public class JEditTextArea extends JComponent
       for (;;) {
         byte id = tokens.id;
         if (id == Token.END) {
-          char c = segmentArray[segmentOffset + offset];
           if (segmentOffset + offset < limit) {
-            //cf.append(c);
-            appendAsHTML(cf, c);
+            appendAsHTML(cf, segmentArray[segmentOffset + offset]);
           } else {
             cf.append('\n');
           }
@@ -1824,7 +1722,6 @@ public class JEditTextArea extends JComponent
             cf.append("&nbsp;");
           } else {
             appendAsHTML(cf, c);
-            //cf.append(c);
           }
           // Place close tags [/]
           if (j == (length - 1) && id != Token.NULL && styles[id].isBold())
@@ -2055,7 +1952,6 @@ public class JEditTextArea extends JComponent
 
   protected int magicCaret;
   protected boolean overwrite;
-  protected boolean rectSelect;
 
 
   protected void fireCaretEvent()
@@ -2375,8 +2271,6 @@ public class JEditTextArea extends JComponent
       if (popup != null && popup.isVisible()) return;
 
       if (!selectWord && !selectLine) {
-        //setSelectionRectangular((evt.getModifiers() & InputEvent.CTRL_MASK) != 0);
-        setSelectionRectangular(evt.isControlDown());
         try {
           select(getMarkPosition(), xyToOffset(evt.getX(), evt.getY()));
         } catch (ArrayIndexOutOfBoundsException e) {
@@ -2452,6 +2346,16 @@ public class JEditTextArea extends JComponent
 //      // Windows fires the popup trigger on release (see mouseReleased() below)(
 //      if (!Base.isWindows()) {
 //        if (event.isPopupTrigger() && (popup != null)) {
+
+        // If user right-clicked inside the selection, preserve it;
+        // move caret to click offset otherwise
+        int offset = xyToOffset(event.getX(), event.getY());
+        int selectionStart = getSelectionStart();
+        int selectionStop = getSelectionStop();
+        if (offset < selectionStart || offset >= selectionStop) {
+          select(offset, offset);
+        }
+
         popup.show(painter, event.getX(), event.getY());
         return;
 //        }
@@ -2505,7 +2409,6 @@ public class JEditTextArea extends JComponent
 
     private void doSingleClick(MouseEvent evt, int line, int offset, int dot) {
       if ((evt.getModifiers() & InputEvent.SHIFT_MASK) != 0) {
-        rectSelect = (evt.getModifiers() & InputEvent.CTRL_MASK) != 0;
         select(getMarkPosition(),dot);
       } else {
         setCaretPosition(dot);

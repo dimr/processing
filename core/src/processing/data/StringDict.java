@@ -109,6 +109,26 @@ public class StringDict {
 
 
   /**
+   * Create a dictionary that maps between column titles and cell entries
+   * in a TableRow. If two columns have the same name, the later column's
+   * values will override the earlier values.
+   */
+  public StringDict(TableRow row) {
+    this(row.getColumnCount());
+
+    String[] titles = row.getColumnTitles();
+    if (titles == null) {
+      titles = new StringList(IntList.fromRange(row.getColumnCount())).array();
+    }
+    for (int col = 0; col < row.getColumnCount(); col++) {
+      set(titles[col], row.getString(col));
+    }
+    // remove unused and overwritten entries
+    crop();
+  }
+
+
+  /**
    * @webref stringdict:method
    * @brief Returns the number of key/value pairs
    */
@@ -129,6 +149,55 @@ public class StringDict {
   }
 
 
+  // . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+
+
+  public class Entry {
+    public String key;
+    public String value;
+
+    Entry(String key, String value) {
+      this.key = key;
+      this.value = value;
+    }
+  }
+
+
+  public Iterable<Entry> entries() {
+    return new Iterable<Entry>() {
+
+      public Iterator<Entry> iterator() {
+        return entryIterator();
+      }
+    };
+  }
+
+
+  public Iterator<Entry> entryIterator() {
+    return new Iterator<Entry>() {
+      int index = -1;
+
+      public void remove() {
+        removeIndex(index);
+        index--;
+      }
+
+      public Entry next() {
+        Entry e = new Entry(keys[index], values[index]);
+        index++;
+        return e;
+      }
+
+      public boolean hasNext() {
+        return index+1 < size();
+      }
+    };
+  }
+
+
+  // . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+
+
   public String key(int index) {
     return keys[index];
   }
@@ -142,39 +211,33 @@ public class StringDict {
   }
 
 
-//  /**
-//   * Return the internal array being used to store the keys. Allocated but
-//   * unused entries will be removed. This array should not be modified.
-//   */
-//  public String[] keys() {
-//    crop();
-//    return keys;
-//  }
-
-  /**
-   * @webref stringdict:method
-   * @brief Return the internal array being used to store the keys
-   */
   public Iterable<String> keys() {
     return new Iterable<String>() {
 
       @Override
       public Iterator<String> iterator() {
-        return new Iterator<String>() {
-          int index = -1;
+        return keyIterator();
+      }
+    };
+  }
 
-          public void remove() {
-            removeIndex(index);
-          }
 
-          public String next() {
-            return key(++index);
-          }
+  // Use this to iterate when you want to be able to remove elements along the way
+  public Iterator<String> keyIterator() {
+    return new Iterator<String>() {
+      int index = -1;
 
-          public boolean hasNext() {
-            return index+1 < size();
-          }
-        };
+      public void remove() {
+        removeIndex(index);
+        index--;
+      }
+
+      public String next() {
+        return key(++index);
+      }
+
+      public boolean hasNext() {
+        return index+1 < size();
       }
     };
   }
@@ -187,6 +250,7 @@ public class StringDict {
    * @brief Return a copy of the internal keys array
    */
   public String[] keyArray() {
+    crop();
     return keyArray(null);
   }
 
@@ -213,21 +277,27 @@ public class StringDict {
 
       @Override
       public Iterator<String> iterator() {
-        return new Iterator<String>() {
-          int index = -1;
+        return valueIterator();
+      }
+    };
+  }
 
-          public void remove() {
-            removeIndex(index);
-          }
 
-          public String next() {
-            return value(++index);
-          }
+  public Iterator<String> valueIterator() {
+    return new Iterator<String>() {
+      int index = -1;
 
-          public boolean hasNext() {
-            return index+1 < size();
-          }
-        };
+      public void remove() {
+        removeIndex(index);
+        index--;
+      }
+
+      public String next() {
+        return value(++index);
+      }
+
+      public boolean hasNext() {
+        return index+1 < size();
       }
     };
   }
@@ -240,6 +310,7 @@ public class StringDict {
    * @brief Create a new array and copy each of the values into it
    */
   public String[] valueArray() {
+    crop();
     return valueArray(null);
   }
 
@@ -357,8 +428,8 @@ public class StringDict {
     keys[b] = tkey;
     values[b] = tvalue;
 
-    indices.put(keys[a], Integer.valueOf(a));
-    indices.put(keys[b], Integer.valueOf(b));
+//    indices.put(keys[a], Integer.valueOf(a));
+//    indices.put(keys[b], Integer.valueOf(b));
   }
 
 
@@ -375,7 +446,7 @@ public class StringDict {
 
   /**
    * @webref stringdict:method
-   * @brief Sort the keys alphabetially in reverse
+   * @brief Sort the keys alphabetically in reverse
    */
   public void sortKeysReverse() {
     sortImpl(true, true);
@@ -432,6 +503,12 @@ public class StringDict {
       }
     };
     s.run();
+
+    // Set the indices after sort/swaps (performance fix 160411)
+    indices = new HashMap<String, Integer>();
+    for (int i = 0; i < count; i++) {
+      indices.put(keys[i], i);
+    }
   }
 
 
@@ -448,6 +525,13 @@ public class StringDict {
   }
 
 
+  public void print() {
+    for (int i = 0; i < size(); i++) {
+      System.out.println(keys[i] + " = " + values[i]);
+    }
+  }
+
+
   /**
    * Write tab-delimited entries out to
    * @param writer
@@ -460,24 +544,20 @@ public class StringDict {
   }
 
 
-  public void print() {
-    for (int i = 0; i < size(); i++) {
-      System.out.println(keys[i] + " = " + values[i]);
+  /**
+   * Return this dictionary as a String in JSON format.
+   */
+  public String toJSON() {
+    StringList items = new StringList();
+    for (int i = 0; i < count; i++) {
+      items.append(JSONObject.quote(keys[i])+ ": " + JSONObject.quote(values[i]));
     }
+    return "{ " + items.join(", ") + " }";
   }
 
 
   @Override
   public String toString() {
-    StringBuilder sb = new StringBuilder();
-    sb.append(getClass().getSimpleName() + " size=" + size() + " { ");
-    for (int i = 0; i < size(); i++) {
-      if (i != 0) {
-        sb.append(", ");
-      }
-      sb.append("\"" + keys[i] + "\": \"" + values[i] + "\"");
-    }
-    sb.append(" }");
-    return sb.toString();
+    return getClass().getSimpleName() + " size=" + size() + " " + toJSON();
   }
 }

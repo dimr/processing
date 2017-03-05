@@ -253,6 +253,16 @@ public class PGraphicsJava2D extends PGraphics {
   }
 
 
+  /**
+   * Still need a means to get the java.awt.Image object, since getNative()
+   * is going to return the {@link Graphics2D} object.
+   */
+  @Override
+  public Image getImage() {
+    return image;
+  }
+
+
   /** Returns the java.awt.Graphics2D object used by this renderer. */
   @Override
   public Object getNative() {
@@ -337,7 +347,10 @@ public class PGraphicsJava2D extends PGraphics {
     if (fontObject != null) {
       g2.setFont(fontObject);
     }
-
+    // https://github.com/processing/processing/issues/4019
+    if (blendMode != 0) {
+      blendMode(blendMode);
+    }
     handleSmooth();
 
     /*

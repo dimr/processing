@@ -25,8 +25,12 @@ package processing.javafx;
 import java.awt.GraphicsDevice;
 import java.awt.GraphicsEnvironment;
 import java.awt.Rectangle;
+import java.net.URL;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.SynchronousQueue;
 
 import javafx.animation.Animation;
 import javafx.animation.KeyFrame;
@@ -38,9 +42,14 @@ import javafx.beans.value.ObservableValue;
 import javafx.event.ActionEvent;
 import javafx.event.EventHandler;
 import javafx.event.EventType;
+import javafx.scene.Cursor;
+import javafx.scene.ImageCursor;
 import javafx.scene.Scene;
 import javafx.scene.SceneAntialiasing;
 import javafx.scene.canvas.Canvas;
+import javafx.scene.image.Image;
+import javafx.scene.image.PixelFormat;
+import javafx.scene.image.WritableImage;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.input.MouseEvent;
@@ -63,6 +72,8 @@ public class PSurfaceFX implements PSurface {
   final Animation animation;
   float frameRate = 60;
 
+  private SynchronousQueue<Throwable> drawExceptionQueue = new SynchronousQueue<>();
+
   public PSurfaceFX(PGraphicsFX2D graphics) {
     fx = graphics;
     canvas = new ResizableCanvas();
@@ -72,7 +83,16 @@ public class PSurfaceFX implements PSurface {
                                      new EventHandler<ActionEvent>() {
       public void handle(ActionEvent event) {
         long startNanoTime = System.nanoTime();
-        sketch.handleDraw();
+        try {
+          sketch.handleDraw();
+        } catch (Throwable e) {
+          // Let exception handler thread crash with our exception
+          drawExceptionQueue.offer(e);
+          // Stop animating right now so nothing runs afterwards
+          // and crash frame can be for example traced by println()
+          animation.stop();
+          return;
+        }
         long drawNanos = System.nanoTime() - startNanoTime;
 
         if (sketch.exitCalled()) {
@@ -329,6 +349,11 @@ public class PSurfaceFX implements PSurface {
       // the stage, assign it only when it is all set up
       surface.stage = stage;
     }
+
+    @Override
+    public void stop() throws Exception {
+      surface.sketch.dispose();
+    }
   }
 
 
@@ -352,6 +377,38 @@ public class PSurfaceFX implements PSurface {
         Thread.sleep(5);
       } catch (InterruptedException e) { }
     }
+
+    startExceptionHandlerThread();
+
+    setProcessingIcon(stage);
+  }
+
+
+  private void startExceptionHandlerThread() {
+    Thread exceptionHandlerThread = new Thread(() -> {
+      Throwable drawException;
+      try {
+        drawException = drawExceptionQueue.take();
+      } catch (InterruptedException e) {
+        return;
+      }
+      // Adapted from PSurfaceJOGL
+      if (drawException != null) {
+        if (drawException instanceof ThreadDeath) {
+//            System.out.println("caught ThreadDeath");
+//            throw (ThreadDeath)cause;
+        } else if (drawException instanceof RuntimeException) {
+          throw (RuntimeException) drawException;
+        } else if (drawException instanceof UnsatisfiedLinkError) {
+          throw new UnsatisfiedLinkError(drawException.getMessage());
+        } else {
+          throw new RuntimeException(drawException);
+        }
+      }
+    });
+    exceptionHandlerThread.setDaemon(true);
+    exceptionHandlerThread.setName("Processing-FX-ExceptionHandler");
+    exceptionHandlerThread.start();
   }
 
 
@@ -390,7 +447,42 @@ public class PSurfaceFX implements PSurface {
 
 
   public void setIcon(PImage icon) {
-    // TODO implement this in JavaFX
+    int w = icon.pixelWidth;
+    int h = icon.pixelHeight;
+    WritableImage im = new WritableImage(w, h);
+    im.getPixelWriter().setPixels(0, 0, w, h,
+                                  PixelFormat.getIntArgbInstance(),
+                                  icon.pixels,
+                                  0, w);
+
+    Stage stage = (Stage) canvas.getScene().getWindow();
+    stage.getIcons().clear();
+    stage.getIcons().add(im);
+  }
+
+
+  List<Image> iconImages;
+
+  protected void setProcessingIcon(Stage stage) {
+    // Adapted from PSurfaceAWT
+    // Note: FX chooses wrong icon size, should be fixed in Java 9, see:
+    // https://bugs.openjdk.java.net/browse/JDK-8091186
+    // Removing smaller sizes helps a bit, but big ones are downsized
+    try {
+      if (iconImages == null) {
+        iconImages = new ArrayList<>();
+        final int[] sizes = { 48, 64, 128, 256, 512 };
+
+        for (int sz : sizes) {
+          URL url = PApplet.class.getResource("/icon/icon-" + sz + ".png");
+          Image image = new Image(url.toString());
+          iconImages.add(image);
+        }
+      }
+      List<Image> icons = stage.getIcons();
+      icons.clear();
+      icons.addAll(iconImages);
+    } catch (Exception e) { }  // harmless; keep this to ourselves
   }
 
 
@@ -590,28 +682,45 @@ public class PSurfaceFX implements PSurface {
 //    canvas.requestFocus();
 //  }
 
+  Cursor lastCursor = Cursor.DEFAULT;
 
   public void setCursor(int kind) {
-    // TODO Auto-generated method stub
-
+    Cursor c;
+    switch (kind) {
+      case PConstants.ARROW: c = Cursor.DEFAULT; break;
+      case PConstants.CROSS: c = Cursor.CROSSHAIR; break;
+      case PConstants.HAND: c = Cursor.HAND; break;
+      case PConstants.MOVE: c = Cursor.MOVE; break;
+      case PConstants.TEXT: c = Cursor.TEXT; break;
+      case PConstants.WAIT: c = Cursor.WAIT; break;
+      default: c = Cursor.DEFAULT; break;
+    }
+    lastCursor = c;
+    canvas.getScene().setCursor(c);
   }
 
 
   public void setCursor(PImage image, int hotspotX, int hotspotY) {
-    // TODO Auto-generated method stub
-
+    int w = image.pixelWidth;
+    int h = image.pixelHeight;
+    WritableImage im = new WritableImage(w, h);
+    im.getPixelWriter().setPixels(0, 0, w, h,
+                                  PixelFormat.getIntArgbInstance(),
+                                  image.pixels,
+                                  0, w);
+    ImageCursor c = new ImageCursor(im, hotspotX, hotspotY);
+    lastCursor = c;
+    canvas.getScene().setCursor(c);
   }
 
 
   public void showCursor() {
-    // TODO Auto-generated method stub
-
+    canvas.getScene().setCursor(lastCursor);
   }
 
 
   public void hideCursor() {
-    // TODO Auto-generated method stub
-
+    canvas.getScene().setCursor(Cursor.NONE);
   }
 
 
@@ -739,11 +848,6 @@ public class PSurfaceFX implements PSurface {
     int count = fxEvent.getClickCount();
 
     int action = mouseMap.get(fxEvent.getEventType());
-    //EventType<? extends MouseEvent> et = nativeEvent.getEventType();
-//    if (et == MouseEvent.MOUSE_PRESSED) {
-//      peAction = processing.event.MouseEvent.PRESS;
-//    } else if (et == MouseEvent.MOUSE_RELEASED) {
-//      peAction = processing.event.MouseEvent.RELEASE;
 
     int modifiers = 0;
     if (fxEvent.isShiftDown()) {
@@ -760,12 +864,19 @@ public class PSurfaceFX implements PSurface {
     }
 
     int button = 0;
-    if (fxEvent.isPrimaryButtonDown()) {
-      button = PConstants.LEFT;
-    } else if (fxEvent.isSecondaryButtonDown()) {
-      button = PConstants.RIGHT;
-    } else if (fxEvent.isMiddleButtonDown()) {
-      button = PConstants.CENTER;
+    switch (fxEvent.getButton()) {
+      case PRIMARY:
+        button = PConstants.LEFT;
+        break;
+      case SECONDARY:
+        button = PConstants.RIGHT;
+        break;
+      case MIDDLE:
+        button = PConstants.CENTER;
+        break;
+      case NONE:
+        // not currently handled
+        break;
     }
 
     // If running on Mac OS, allow ctrl-click as right mouse.
@@ -786,23 +897,37 @@ public class PSurfaceFX implements PSurface {
                                                      x, y, button, count));
   }
 
+  // https://docs.oracle.com/javase/8/javafx/api/javafx/scene/input/ScrollEvent.html
+  protected void fxScrollEvent(ScrollEvent fxEvent) {
+    // the number of steps/clicks on the wheel for a mouse wheel event.
+    int count = (int) -(fxEvent.getDeltaY() / fxEvent.getMultiplierY());
 
-  // https://docs.oracle.com/javafx/2/api/javafx/scene/input/ScrollEvent.html
-  protected void fxScrollEvent(ScrollEvent event) {
-//   //case java.awt.event.MouseWheelEvent.WHEEL_UNIT_SCROLL:
-//    case java.awt.event.MouseEvent.MOUSE_WHEEL:
-//      peAction = MouseEvent.WHEEL;
-//      /*
-//      if (preciseWheelMethod != null) {
-//        try {
-//          peAmount = ((Double) preciseWheelMethod.invoke(nativeEvent, (Object[]) null)).floatValue();
-//        } catch (Exception e) {
-//          preciseWheelMethod = null;
-//        }
-//      }
-//      */
-//      peCount = ((MouseWheelEvent) nativeEvent).getWheelRotation();
-//      break;
+    int action = processing.event.MouseEvent.WHEEL;
+
+    int modifiers = 0;
+    if (fxEvent.isShiftDown()) {
+      modifiers |= processing.event.Event.SHIFT;
+    }
+    if (fxEvent.isControlDown()) {
+      modifiers |= processing.event.Event.CTRL;
+    }
+    if (fxEvent.isMetaDown()) {
+      modifiers |= processing.event.Event.META;
+    }
+    if (fxEvent.isAltDown()) {
+      modifiers |= processing.event.Event.ALT;
+    }
+
+    // FX does not supply button info
+    int button = 0;
+
+    long when = System.currentTimeMillis();
+    int x = (int) fxEvent.getX();  // getSceneX()?
+    int y = (int) fxEvent.getY();
+
+    sketch.postEvent(new processing.event.MouseEvent(fxEvent, when,
+                                                     action, modifiers,
+                                                     x, y, button, count));
   }
 
 

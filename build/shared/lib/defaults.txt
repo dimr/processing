@@ -1,3 +1,4 @@
+
 # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 
@@ -103,6 +104,11 @@ editor.window.height.min.macosx = 450
 editor.window.height.min.windows = 530
 # tested with Raspberry Pi display
 editor.window.height.min.linux = 480
+
+# scaling for the interface (to handle Windows and Linux HiDPI displays)
+editor.zoom = 100%
+# automatically set based on system dpi (only helps on Windows)
+editor.zoom.auto = true
 
 # font size for editor
 #editor.font = Monospaced,plain,12
@@ -346,6 +352,8 @@ proxy.socks.port=
 # Example of usage (replace 'http' with 'https' or 'socks' as needed)
 #proxy.http.host=proxy.example.com
 #proxy.http.port=8080
+# Whether to use the system proxy by default
+proxy.system=true
 
 # PDE X
 pdex.autoSave.autoSaveByDefault=true
@@ -357,6 +365,8 @@ pdex.errorCheckEnabled=true
 pdex.warningsEnabled=true
 pdex.writeErrorLogs=false
 
+# Set to false to disable ctrl/cmd-click jump to definition
+pdex.inspectMode.hotkey=true
 # Enable auto-completion when hitting ctrl-space
 pdex.completion = false
 # Trigger happy version of completion that fires more often

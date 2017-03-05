@@ -26,15 +26,26 @@ package processing.io;
 public class NativeInterface {
 
   protected static boolean loaded = false;
+  protected static boolean alwaysSimulate = false;
 
   public static void loadLibrary() {
     if (!loaded) {
-      if (!"Linux".equals(System.getProperty("os.name"))) {
-        throw new RuntimeException("The Processing I/O library is only supported on Linux");
+      if (isSimulated()) {
+        System.err.println("The Processing I/O library is not supported on this platform. Instead of values from actual hardware ports, your sketch will only receive stand-in values that allow you to test the remainder of its functionality.");
+      } else {
+        System.loadLibrary("processing-io");
       }
-      System.loadLibrary("processing-io");
       loaded = true;
     }
+  }
+
+  public static void alwaysSimulate() {
+    alwaysSimulate = true;
+  }
+
+  public static boolean isSimulated() {
+    return alwaysSimulate ||
+           !"Linux".equals(System.getProperty("os.name"));
   }
 
 
@@ -54,6 +65,10 @@ public class NativeInterface {
   public static native int pollDevice(String fn, int timeout);
   /* I2C */
   public static native int transferI2c(int handle, int slave, byte[] out, byte[] in);
+  /* SoftwareServo */
+  public static native long servoStartThread(int gpio, int pulse, int period);
+  public static native int servoUpdateThread(long handle, int pulse, int period);
+  public static native int servoStopThread(long handle);
   /* SPI */
   public static native int setSpiSettings(int handle, int maxSpeed, int dataOrder, int mode);
   public static native int transferSpi(int handle, byte[] out, byte[] in);

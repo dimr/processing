@@ -58,6 +58,7 @@ import com.jogamp.opengl.GLEventListener;
 import com.jogamp.opengl.GLException;
 import com.jogamp.opengl.GLProfile;
 import com.jogamp.nativewindow.MutableGraphicsConfiguration;
+import com.jogamp.nativewindow.WindowClosingProtocol;
 import com.jogamp.newt.Display;
 import com.jogamp.newt.Display.PointerIcon;
 import com.jogamp.newt.MonitorDevice;
@@ -67,6 +68,7 @@ import com.jogamp.newt.awt.NewtCanvasAWT;
 import com.jogamp.newt.event.InputEvent;
 import com.jogamp.newt.opengl.GLWindow;
 import com.jogamp.opengl.util.FPSAnimator;
+
 
 import processing.core.PApplet;
 import processing.core.PConstants;
@@ -87,6 +89,8 @@ public class PSurfaceJOGL implements PSurface {
   protected FPSAnimator animator;
   protected Rectangle screenRect;
 
+  private Thread drawExceptionHandler;
+
   protected PApplet sketch;
   protected PGraphics graphics;
 
@@ -102,7 +106,7 @@ public class PSurfaceJOGL implements PSurface {
   protected List<MonitorDevice> monitors;
   protected MonitorDevice displayDevice;
   protected Throwable drawException;
-  protected Object waitObject = new Object();
+  private final Object drawExceptionMutex = new Object();
 
   protected NewtCanvasAWT canvas;
 
@@ -133,6 +137,16 @@ public class PSurfaceJOGL implements PSurface {
   public void initFrame(PApplet sketch) {
     this.sketch = sketch;
     initIcons();
+
+    // https://jogamp.org/bugzilla/show_bug.cgi?id=1290
+    File mesaLib = new File("/usr/lib/arm-linux-gnueabihf/libGLESv2.so.2");
+    if (mesaLib.exists()) {
+      System.out.println("\nIf you are receiving an error regarding the undefined symbol bcm_host_init, " +
+                         "make sure you have the package libgles2-mesa deinstalled. This can be done " +
+                         "by executing \"sudo aptitude remove libgles2-mesa\" in the terminal, and is " +
+                         "a known issue with the Raspbian distribution.\n");
+    }
+
     initDisplay();
     initGL();
     initWindow();
@@ -304,6 +318,12 @@ public class PSurfaceJOGL implements PSurface {
   protected void initWindow() {
     window = GLWindow.create(screen, pgl.getCaps());
 
+    // Make sure that we pass the window close through to exit(), otherwise
+    // we're likely to have OpenGL try to shut down halfway through rendering
+    // a frame. Particularly problematic for complex/slow apps.
+    // https://github.com/processing/processing/issues/4690
+    window.setDefaultCloseOperation(WindowClosingProtocol.WindowClosingMode.DO_NOTHING_ON_CLOSE);
+
 //    if (displayDevice == null) {
 //
 //
@@ -413,6 +433,20 @@ public class PSurfaceJOGL implements PSurface {
 
 
   protected void initAnimator() {
+    if (PApplet.platform == PConstants.WINDOWS) {
+      // Force Windows to keep timer resolution high by
+      // sleeping for time which is not a multiple of 10 ms.
+      // See section "Clocks and Timers on Windows":
+      //   https://blogs.oracle.com/dholmes/entry/inside_the_hotspot_vm_clocks
+      Thread highResTimerThread = new Thread(() -> {
+        try {
+          Thread.sleep(Long.MAX_VALUE);
+        } catch (InterruptedException ignore) { }
+      }, "HighResTimerThread");
+      highResTimerThread.setDaemon(true);
+      highResTimerThread.start();
+    }
+
     animator = new FPSAnimator(window, 60);
     drawException = null;
     animator.setUncaughtExceptionHandler(new GLAnimatorControl.UncaughtExceptionHandler() {
@@ -420,38 +454,43 @@ public class PSurfaceJOGL implements PSurface {
       public void uncaughtException(final GLAnimatorControl animator,
                                     final GLAutoDrawable drawable,
                                     final Throwable cause) {
-        synchronized (waitObject) {
+        synchronized (drawExceptionMutex) {
           drawException = cause;
-          waitObject.notify();
+          drawExceptionMutex.notify();
         }
       }
     });
 
-    new Thread(new Runnable() {
+    drawExceptionHandler = new Thread(new Runnable() {
       public void run() {
-        synchronized (waitObject) {
+        synchronized (drawExceptionMutex) {
           try {
-            if (drawException == null) waitObject.wait();
-          } catch (InterruptedException e) {
-            e.printStackTrace();
-          }
-//        System.err.println("Caught exception: " + drawException.getMessage());
-          if (drawException != null) {
-            Throwable cause = drawException.getCause();
-            if (cause instanceof ThreadDeath) {
-//            System.out.println("caught ThreadDeath");
-//            throw (ThreadDeath)cause;
-            } else if (cause instanceof RuntimeException) {
-              throw (RuntimeException)cause;
-            } else if (cause instanceof UnsatisfiedLinkError) {
-              throw new UnsatisfiedLinkError(cause.getMessage());
-            } else {
-              throw new RuntimeException(cause);
+            while (drawException == null) {
+              drawExceptionMutex.wait();
             }
+            // System.err.println("Caught exception: " + drawException.getMessage());
+            if (drawException != null) {
+              Throwable cause = drawException.getCause();
+              if (cause instanceof ThreadDeath) {
+                // System.out.println("caught ThreadDeath");
+                // throw (ThreadDeath)cause;
+              } else if (cause instanceof RuntimeException) {
+                throw (RuntimeException) cause;
+              } else if (cause instanceof UnsatisfiedLinkError) {
+                throw new UnsatisfiedLinkError(cause.getMessage());
+              } else if (cause == null) {
+                throw new RuntimeException(drawException.getMessage());
+              } else {
+                throw new RuntimeException(cause);
+              }
+            }
+          } catch (InterruptedException e) {
+            return;
           }
         }
       }
-    }).start();
+    });
+    drawExceptionHandler.start();
   }
 
 
@@ -743,6 +782,10 @@ public class PSurfaceJOGL implements PSurface {
 
 
   public boolean stopThread() {
+    if (drawExceptionHandler != null) {
+      drawExceptionHandler.interrupt();
+      drawExceptionHandler = null;
+    }
     if (animator != null) {
       return animator.stop();
     } else {
@@ -819,6 +862,10 @@ public class PSurfaceJOGL implements PSurface {
 
 
   public void setFrameRate(float fps) {
+    if (fps < 1) {
+      PGraphics.showWarning("The OpenGL renderers cannot have a frame rate lower than 1.\nYour sketch will run at 1 frame per second.");
+      fps = 1;
+    }
     if (animator != null) {
       animator.stop();
       animator.setFPS((int)fps);
@@ -854,17 +901,19 @@ public class PSurfaceJOGL implements PSurface {
         requestFocus();
       }
 
-      pgl.getGL(drawable);
-      int pframeCount = sketch.frameCount;
-      sketch.handleDraw();
-      if (pframeCount == sketch.frameCount) {
-        // This hack allows the FBO layer to be swapped normally even if
-        // the sketch is no looping, otherwise background artifacts will occur.
-        pgl.beginRender();
-        pgl.endRender(sketch.sketchWindowColor());
+      if (!sketch.finished) {
+        pgl.getGL(drawable);
+        int pframeCount = sketch.frameCount;
+        sketch.handleDraw();
+        if (pframeCount == sketch.frameCount || sketch.finished) {
+          // This hack allows the FBO layer to be swapped normally even if
+          // the sketch is no looping or finished because it does not call draw(),
+          // otherwise background artifacts may occur (depending on the hardware/drivers).
+          pgl.beginRender();
+          pgl.endRender(sketch.sketchWindowColor());
+        }
+        PGraphicsOpenGL.completeFinishedPixelTransfers();
       }
-
-      PGraphicsOpenGL.completeFinishedPixelTransfers();
 
       if (sketch.exitCalled()) {
         PGraphicsOpenGL.completeAllPixelTransfers();
@@ -874,7 +923,7 @@ public class PSurfaceJOGL implements PSurface {
       }
     }
     public void dispose(GLAutoDrawable drawable) {
-      sketch.dispose();
+//      sketch.dispose();
     }
     public void init(GLAutoDrawable drawable) {
       pgl.getGL(drawable);
@@ -943,6 +992,7 @@ public class PSurfaceJOGL implements PSurface {
 
     @Override
     public void windowDestroyed(com.jogamp.newt.event.WindowEvent arg0) {
+      sketch.exit();
     }
 
     @Override
@@ -1033,12 +1083,16 @@ public class PSurfaceJOGL implements PSurface {
                        InputEvent.ALT_MASK);
 
     int peButton = 0;
-    if ((modifiers & InputEvent.BUTTON1_MASK) != 0) {
-      peButton = PConstants.LEFT;
-    } else if ((modifiers & InputEvent.BUTTON2_MASK) != 0) {
-      peButton = PConstants.CENTER;
-    } else if ((modifiers & InputEvent.BUTTON3_MASK) != 0) {
-      peButton = PConstants.RIGHT;
+    switch (nativeEvent.getButton()) {
+      case com.jogamp.newt.event.MouseEvent.BUTTON1:
+        peButton = PConstants.LEFT;
+        break;
+      case com.jogamp.newt.event.MouseEvent.BUTTON2:
+        peButton = PConstants.CENTER;
+        break;
+      case com.jogamp.newt.event.MouseEvent.BUTTON3:
+        peButton = PConstants.RIGHT;
+        break;
     }
 
     if (PApplet.platform == PConstants.MACOSX) {

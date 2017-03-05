@@ -21,6 +21,7 @@
 
 package processing.app.ui;
 
+import java.awt.BasicStroke;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.Font;
@@ -52,12 +53,14 @@ import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
-import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.regex.Pattern;
 
 import javax.swing.Action;
+import javax.swing.Icon;
 import javax.swing.ImageIcon;
+import javax.swing.JButton;
 import javax.swing.JCheckBoxMenuItem;
 import javax.swing.JComponent;
 import javax.swing.JMenu;
@@ -71,23 +74,17 @@ import processing.app.Language;
 import processing.app.Messages;
 import processing.app.Platform;
 import processing.app.Preferences;
+import processing.app.Util;
+import processing.core.PApplet;
+import processing.data.StringList;
 
 
 /**
  * Utility functions for base that require a java.awt.Toolkit object. These
  * are broken out from Base as we start moving toward the possibility of the
  * code running in headless mode.
- * @author fry
  */
 public class Toolkit {
-  /*
-  static public final String PROMPT_YES     = Language.text("prompt.yes");
-  static public final String PROMPT_NO      = Language.text("prompt.no");
-  static public final String PROMPT_CANCEL  = Language.text("prompt.cancel");
-  static public final String PROMPT_OK      = Language.text("prompt.ok");
-  static public final String PROMPT_BROWSE  = Language.text("prompt.browse");
-  */
-
   static final java.awt.Toolkit awtToolkit =
     java.awt.Toolkit.getDefaultToolkit();
 
@@ -115,7 +112,7 @@ public class Toolkit {
   static public int getButtonWidth() {
     // Made into a method so that calling Toolkit methods doesn't require
     // the languages to be loaded, and with that, Base initialized completely
-    return Integer.parseInt(Language.text("preferences.button.width"));
+    return zoom(Integer.parseInt(Language.text("preferences.button.width")));
   }
 
 
@@ -499,25 +496,25 @@ public class Toolkit {
    * a hidpi display, get the NN*2 version automatically, sized at NN
    */
   static public ImageIcon getIconX(File dir, String base, int size) {
-    final int scale = Toolkit.highResDisplay() ? 2 : 1;
+    final int scale = Toolkit.highResImages() ? 2 : 1;
     String filename = (size == 0) ?
       (base + "-" + scale + "x.png") :
       (base + "-" + (size*scale) + ".png");
-//    File file = Platform.getContentFile("lib/" + filename);
     File file = new File(dir, filename);
     if (!file.exists()) {
-//      System.err.println("does not exist: " + file);
       return null;
     }
+
     ImageIcon outgoing = new ImageIcon(file.getAbsolutePath()) {
+
       @Override
       public int getIconWidth() {
-        return super.getIconWidth() / scale;
+        return Toolkit.zoom(super.getIconWidth()) / scale;
       }
 
       @Override
       public int getIconHeight() {
-        return super.getIconHeight() / scale;
+        return Toolkit.zoom(super.getIconHeight()) / scale;
       }
 
       @Override
@@ -545,6 +542,33 @@ public class Toolkit {
   static public ImageIcon getLibIconX(String base, int size) {
     return getIconX(Platform.getContentFile("lib"), base, size);
   }
+
+
+  /**
+   * Create a JButton with an icon, and set its disabled and pressed images
+   * to be the same image, so that 2x versions of the icon work properly.
+   */
+  static public JButton createIconButton(String title, String base) {
+    ImageIcon icon = Toolkit.getLibIconX(base);
+    return createIconButton(title, icon);
+  }
+
+
+  /** Same as above, but with no text title (follows JButton constructor) */
+  static public JButton createIconButton(String base) {
+    return createIconButton(null, base);
+  }
+
+
+  static public JButton createIconButton(String title, Icon icon) {
+    JButton button = new JButton(title, icon);
+    button.setDisabledIcon(icon);
+    button.setPressedIcon(icon);
+    return button;
+  }
+
+
+  // . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
 
 
   static List<Image> iconImages;
@@ -664,6 +688,17 @@ public class Toolkit {
 
 
   /**
+   * Create an Image to be used as an offscreen drawing context,
+   * automatically doubling the size if running on a retina display.
+   */
+  static public Image offscreenGraphics(Component comp, int width, int height) {
+    int m = Toolkit.isRetina() ? 2 : 1;
+    //return comp.createImage(m * dpi(width), m * dpi(height));
+    return comp.createImage(m * width, m * height);
+  }
+
+
+  /**
    * Handles scaling for high-res displays, also sets text anti-aliasing
    * options to be far less ugly than the defaults.
    * Moved to a utility function because it's used in several classes.
@@ -672,19 +707,24 @@ public class Toolkit {
   static public Graphics2D prepareGraphics(Graphics g) {
     Graphics2D g2 = (Graphics2D) g;
 
-    if (Toolkit.highResDisplay()) {
+    //float z = zoom * (Toolkit.isRetina() ? 2 : 1);
+    if (Toolkit.isRetina()) {
       // scale everything 2x, will be scaled down when drawn to the screen
       g2.scale(2, 2);
     }
+    //g2.scale(z, z);
     g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
                         RenderingHints.VALUE_ANTIALIAS_ON);
     g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
                         RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-    if (Toolkit.highResDisplay()) {
+    g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                        RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+    if (Toolkit.isRetina()) {
       // Looks great on retina, not so great (with our font) on 1x
       g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
                           RenderingHints.VALUE_TEXT_ANTIALIAS_GASP);
     }
+    zoomStroke(g2);
     return g2;
   }
 
@@ -723,14 +763,98 @@ public class Toolkit {
   // . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
 
 
-  static Boolean highResProp;
+  static float zoom = 0;
 
 
-  static public boolean highResDisplay() {
-    if (highResProp == null) {
-      highResProp = checkRetina();
+  /*
+  // http://stackoverflow.com/a/35029265
+  static public void zoomSwingFonts() {
+    Set<Object> keySet = UIManager.getLookAndFeelDefaults().keySet();
+    Object[] keys = keySet.toArray(new Object[keySet.size()]);
+
+    for (Object key : keys) {
+      if (key != null && key.toString().toLowerCase().contains("font")) {
+        System.out.println(key);
+        Font font = UIManager.getDefaults().getFont(key);
+        if (font != null) {
+          font = font.deriveFont(font.getSize() * zoom);
+          UIManager.put(key, font);
+        }
+      }
     }
-    return highResProp;
+  }
+  */
+
+
+  static final StringList zoomOptions =
+    new StringList("100%", "150%", "200%", "300%");
+
+
+  static public int zoom(int pixels) {
+    if (zoom == 0) {
+      zoom = parseZoom();
+    }
+    return (int) (zoom * pixels);
+  }
+
+
+  static public Dimension zoom(int w, int h) {
+    return new Dimension(zoom(w), zoom(h));
+  }
+
+
+  static private float parseZoom() {
+    if (Preferences.getBoolean("editor.zoom.auto")) {
+      float newZoom = Platform.getSystemDPI() / 96f;
+      String percentSel = ((int) (newZoom*100)) + "%";
+      Preferences.set("editor.zoom", percentSel);
+      return newZoom;
+
+    } else {
+      String zoomSel = Preferences.get("editor.zoom");
+      if (zoomOptions.hasValue(zoomSel)) {
+        // shave off the % symbol at the end
+        zoomSel = zoomSel.substring(0, zoomSel.length() - 1);
+        return PApplet.parseInt(zoomSel, 100) / 100f;
+
+      } else {
+        Preferences.set("editor.zoom", "100%");
+        return 1;
+      }
+    }
+  }
+
+
+  static BasicStroke zoomStroke;
+
+  static private void zoomStroke(Graphics2D g2) {
+    if (zoom != 1) {
+      if (zoomStroke == null || zoomStroke.getLineWidth() != zoom) {
+        zoomStroke = new BasicStroke(zoom);
+      }
+      g2.setStroke(zoomStroke);
+    }
+  }
+
+
+  // . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+
+
+  // Changed to retinaProp instead of highResProp because only Mac
+  // "retina" displays use this mechanism for high-resolution scaling.
+  static Boolean retinaProp;
+
+
+  static public boolean highResImages() {
+    return isRetina() || (zoom > 1);
+  }
+
+
+  static public boolean isRetina() {
+    if (retinaProp == null) {
+      retinaProp = checkRetina();
+    }
+    return retinaProp;
   }
 
 
@@ -761,47 +885,6 @@ public class Toolkit {
   // . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
 
 
-//  static Font monoFont;
-//  static Font plainFont;
-//  static Font boldFont;
-//
-//
-//  static public Font getMonoFont(int size) {
-//    if (monoFont == null) {
-//      try {
-//        monoFont = createFont("DroidSansMono.ttf", size);
-//      } catch (Exception e) {
-//        monoFont = new Font("Monospaced", Font.PLAIN, size);
-//      }
-//    }
-//    return monoFont;
-//  }
-//
-//
-//  static public Font getPlainFont(int size) {
-//    if (plainFont == null) {
-//      try {
-//        plainFont = createFont("DroidSans.ttf", size);
-//      } catch (Exception e) {
-//        plainFont = new Font("SansSerif", Font.PLAIN, size);
-//      }
-//    }
-//    return plainFont;
-//  }
-//
-//
-//  static public Font getBoldFont(int size) {
-//    if (boldFont == null) {
-//      try {
-//        boldFont = createFont("DroidSans-Bold.ttf", size);
-//      } catch (Exception e) {
-//        boldFont = new Font("SansSerif", Font.BOLD, size);
-//      }
-//    }
-//    return boldFont;
-//  }
-
-
   static final char GREEK_SMALL_LETTER_ALPHA = '\u03B1';  // α
   static final char GREEK_CAPITAL_LETTER_OMEGA = '\u03A9';  // ω
 
@@ -811,7 +894,7 @@ public class Toolkit {
     GraphicsEnvironment ge =
       GraphicsEnvironment.getLocalGraphicsEnvironment();
     Font[] fonts = ge.getAllFonts();
-    ArrayList<Font> outgoing = new ArrayList<Font>();
+    List<Font> outgoing = new ArrayList<Font>();
     // Using AffineTransform.getScaleInstance(100, 100) doesn't change sizes
     FontRenderContext frc =
       new FontRenderContext(new AffineTransform(),
@@ -853,13 +936,12 @@ public class Toolkit {
 
 
   static public String[] getMonoFontFamilies() {
-    HashSet<String> families = new HashSet<String>();
+    StringList families = new StringList();
     for (Font font : getMonoFontList()) {
-      families.add(font.getFamily());
+      families.appendUnique(font.getFamily());
     }
-    String[] names = families.toArray(new String[0]);
-    Arrays.sort(names);
-    return names;
+    families.sort();
+    return families.array();
   }
 
 
@@ -871,7 +953,8 @@ public class Toolkit {
 
   static public String getMonoFontName() {
     if (monoFont == null) {
-      getMonoFont(12, Font.PLAIN);  // load a dummy version
+      // create a dummy version if the font has never been loaded (rare)
+      getMonoFont(12, Font.PLAIN);
     }
     return monoFont.getName();
   }
@@ -881,7 +964,6 @@ public class Toolkit {
     if (monoFont == null) {
       try {
         monoFont = createFont("SourceCodePro-Regular.ttf", size);
-        //monoBoldFont = createFont("SourceCodePro-Semibold.ttf", size);
         monoBoldFont = createFont("SourceCodePro-Bold.ttf", size);
 
         // additional language constraints
@@ -891,6 +973,14 @@ public class Toolkit {
             monoFont = createFont("AnonymousPro-Regular.ttf", size);
             monoBoldFont = createFont("AnonymousPro-Bold.ttf", size);
           }
+        }
+        // https://github.com/processing/processing/issues/2886
+        String lang = Language.getLanguage();
+        if (Locale.CHINESE.getLanguage().equals(lang) ||
+            Locale.JAPANESE.getLanguage().equals(lang) ||
+            Locale.KOREAN.getLanguage().equals(lang)) {
+          sansFont = new Font("Monospaced", Font.PLAIN, size);
+          sansBoldFont = new Font("Monospaced", Font.BOLD, size);
         }
       } catch (Exception e) {
         Messages.loge("Could not load mono font", e);
@@ -914,11 +1004,41 @@ public class Toolkit {
   }
 
 
+  static public String getSansFontName() {
+    if (sansFont == null) {
+      // create a dummy version if the font has never been loaded (rare)
+      getSansFont(12, Font.PLAIN);
+    }
+    return sansFont.getName();
+  }
+
+
   static public Font getSansFont(int size, int style) {
     if (sansFont == null) {
       try {
-        sansFont = createFont("SourceSansPro-Regular.ttf", size);
-        sansBoldFont = createFont("SourceSansPro-Semibold.ttf", size);
+        /*
+        // check for an installed version, because they cause nasty conflicts
+        // https://github.com/processing/processing/issues/4747
+        if (Platform.isWindows()) {
+          sansFont = new Font("Source Sans Pro", Font.PLAIN, size);
+          // the ps name will be Dialog.plain (or similar) if not installed
+          if (!sansFont.getPSName().startsWith("Source")) {
+            sansFont = null;
+          }
+          sansBoldFont = new Font("Source Sans Pro Semibold", Font.PLAIN, size);
+          if (!sansBoldFont.getPSName().startsWith("Source")) {
+            sansBoldFont = null;
+          }
+        }
+        if (sansFont == null) {
+          sansFont = createFont("SourceSansPro-Regular.ttf", size);
+        }
+        if (sansBoldFont == null) {
+          sansBoldFont = createFont("SourceSansPro-Semibold.ttf", size);
+        }
+        */
+        sansFont = createFont("ProcessingSansPro-Regular.ttf", size);
+        sansBoldFont = createFont("ProcessingSansPro-Semibold.ttf", size);
 
         // additional language constraints
         if ("el".equals(Language.getLanguage())) {
@@ -927,6 +1047,15 @@ public class Toolkit {
             sansFont = createFont("Carlito-Regular.ttf", size);
             sansBoldFont = createFont("Carlito-Bold.ttf", size);
           }
+        }
+
+        // https://github.com/processing/processing/issues/2886
+        String lang = Language.getLanguage();
+        if (Locale.CHINESE.getLanguage().equals(lang) ||
+            Locale.JAPANESE.getLanguage().equals(lang) ||
+            Locale.KOREAN.getLanguage().equals(lang)) {
+          sansFont = new Font("SansSerif", Font.PLAIN, size);
+          sansBoldFont = new Font("SansSerif", Font.BOLD, size);
         }
       } catch (Exception e) {
         Messages.loge("Could not load sans font", e);
@@ -951,29 +1080,29 @@ public class Toolkit {
 
 
   /**
-   * Get a font from the JRE lib/fonts folder. Our default fonts are also
+   * Get a font from the lib/fonts folder. Our default fonts are also
    * installed there so that the monospace (and others) can be used by other
    * font listing calls (i.e. it appears in the list of monospace fonts in
    * the Preferences window, and can be used by HTMLEditorKit for WebFrame).
    */
   static private Font createFont(String filename, int size) throws IOException, FontFormatException {
-    // Can't use Base.getJavaHome(), because if we're not using our local JRE,
-    // we likely have bigger problems with how things are running.
+    boolean registerFont = false;
+
+    // try the JRE font directory first
     File fontFile = new File(System.getProperty("java.home"), "lib/fonts/" + filename);
+
+    // else fall back to our own content dir
     if (!fontFile.exists()) {
-      // if we're debugging from Eclipse, grab it from the work folder (user.dir is /app)
-      fontFile = new File(System.getProperty("user.dir"), "../build/shared/lib/fonts/" + filename);
+      fontFile = Platform.getContentFile("lib/fonts/" + filename);
+      registerFont = true;
     }
-    if (!fontFile.exists()) {
-      // if we're debugging the new Java Mode from Eclipse, paths are different
-      fontFile = new File(System.getProperty("user.dir"), "../../shared/lib/fonts/" + filename);
-    }
+
     if (!fontFile.exists()) {
       String msg = "Could not find required fonts. ";
       // This gets the JAVA_HOME for the *local* copy of the JRE installed with
       // Processing. If it's not using the local JRE, it may be because of this
       // launch4j bug: https://github.com/processing/processing/issues/3543
-      if (hasNonAsciiChars(Platform.getJavaHome().getAbsolutePath())) {
+      if (Util.containsNonASCII(Platform.getJavaHome().getAbsolutePath())) {
         msg += "Trying moving Processing\n" +
           "to a location with only ASCII characters in the path.";
       } else {
@@ -982,18 +1111,17 @@ public class Toolkit {
       Messages.showError("Font Sadness", msg, null);
     }
 
+
     BufferedInputStream input = new BufferedInputStream(new FileInputStream(fontFile));
     Font font = Font.createFont(Font.TRUETYPE_FONT, input);
     input.close();
-    return font.deriveFont((float) size);
-  }
 
-
-  static private final boolean hasNonAsciiChars(String what) {
-    for (char c : what.toCharArray()) {
-      if (c < 32 || c > 127) return true;
+    if (registerFont) {
+      GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
+      ge.registerFont(font);
     }
-    return false;
+
+    return font.deriveFont((float) size);
   }
 
 

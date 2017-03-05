@@ -41,6 +41,7 @@ import java.beans.PropertyChangeListener;
 import java.io.*;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -656,9 +657,10 @@ public class Sketch {
         // get the changes into the sketchbook menu
         //sketchbook.rebuildMenus();
 
-        // make a new sketch, and i think this will rebuild the sketch menu
+        // make a new sketch and rebuild the sketch menu
         //editor.handleNewUnchecked();
         //editor.handleClose2();
+        editor.getBase().rebuildSketchbookMenus();
         editor.getBase().handleClose(editor, false);
 
       } else {
@@ -673,11 +675,12 @@ public class Sketch {
         // remove code from the list
         removeCode(current);
 
+        // update the tabs
+        editor.rebuildHeader();
+
         // just set current tab to the main tab
         setCurrentCode(0);
 
-        // update the tabs
-        editor.rebuildHeader();
       }
     }
   }
@@ -921,9 +924,12 @@ public class Sketch {
           return false;
         }
         // list of files/folders to be ignored during "save as"
-        for (String ignorable : mode.getIgnorable()) {
-          if (name.equals(ignorable)) {
-            return false;
+        String[] ignorable = mode.getIgnorable();
+        if (ignorable != null) {
+          for (String ignore : ignorable) {
+            if (name.equals(ignore)) {
+              return false;
+            }
           }
         }
         // ignore the extensions for code, since that'll be copied below
@@ -973,6 +979,13 @@ public class Sketch {
   }
 
 
+  AtomicBoolean saving = new AtomicBoolean();
+
+  public boolean isSaving() {
+    return saving.get();
+  }
+
+
   /**
    * Kick off a background thread to copy everything *but* the .pde files.
    * Due to the poor way (dating back to the late 90s with DBN) that our
@@ -982,15 +995,16 @@ public class Sketch {
    * As a result, this method will return 'true' before the full "Save As"
    * has completed, which will cause problems in weird cases.
    *
-   * For instance, saving an untitled sketch that has an enormous data
-   * folder while quitting. The save thread to move those data folder files
-   * won't have finished before this returns true, and the PDE may quit
-   * before the SwingWorker completes its job.
+   * For instance, the threading will cause problems while saving an untitled
+   * sketch that has an enormous data folder while quitting. The save thread to
+   * move those data folder files won't have finished before this returns true,
+   * and the PDE may quit before the SwingWorker completes its job.
    *
    * <a href="https://github.com/processing/processing/issues/3843">3843</a>
    */
   void startSaveAsThread(final String oldName, final String newName,
                          final File newFolder, final File[] copyItems) {
+    saving.set(true);
     EventQueue.invokeLater(new Runnable() {
       public void run() {
         final JFrame frame =
@@ -1060,6 +1074,7 @@ public class Sketch {
                 }
               }
             }
+            saving.set(false);
             return null;
           }
 
@@ -1234,6 +1249,8 @@ public class Sketch {
     String codeExtension = null;
     boolean replacement = false;
 
+    boolean isCode = false;
+
     // if the file appears to be code related, drop it
     // into the code folder, instead of the data folder
     if (filename.toLowerCase().endsWith(".class") ||
@@ -1246,7 +1263,7 @@ public class Sketch {
       //if (!codeFolder.exists()) codeFolder.mkdirs();
       prepareCodeFolder();
       destFile = new File(codeFolder, filename);
-
+      isCode = true;
     } else {
       for (String extension : mode.getExtensions()) {
         String lower = filename.toLowerCase();
@@ -1314,6 +1331,10 @@ public class Sketch {
                              Language.interpolate("add_file.messages.cannot_add.description", filename), e);
         return false;
       }
+    }
+
+    if (isCode) {
+      editor.codeFolderChanged();
     }
 
     if (codeExtension != null) {

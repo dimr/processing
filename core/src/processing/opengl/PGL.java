@@ -272,6 +272,13 @@ public abstract class PGL {
   protected boolean clearColor = false;
   protected boolean pclearColor;
 
+  protected boolean clearDepth = false;
+  protected boolean pclearDepth;
+
+  protected boolean clearStencil = false;
+  protected boolean pclearStencil;
+
+
   // ........................................................
 
   // Error messages
@@ -636,13 +643,49 @@ public abstract class PGL {
   // Frame rendering
 
 
-  protected void clearBackground(float r, float g, float b, float a, boolean depth) {
-    if (depth) {
+  protected void clearDepthStencil() {
+    if (!pclearDepth && !pclearStencil) {
+      depthMask(true);
       clearDepth(1);
-      clear(PGL.DEPTH_BUFFER_BIT);
+      clearStencil(0);
+      clear(DEPTH_BUFFER_BIT | STENCIL_BUFFER_BIT);
+    } else if (!pclearDepth) {
+      depthMask(true);
+      clearDepth(1);
+      clear(DEPTH_BUFFER_BIT);
+    } else if (!pclearStencil) {
+      clearStencil(0);
+      clear(STENCIL_BUFFER_BIT);
     }
+  }
+
+
+  protected void clearBackground(float r, float g, float b, float a,
+                                 boolean depth, boolean stencil) {
     clearColor(r, g, b, a);
-    clear(PGL.COLOR_BUFFER_BIT);
+    if (depth && stencil) {
+      clearDepth(1);
+      clearStencil(0);
+      clear(DEPTH_BUFFER_BIT | STENCIL_BUFFER_BIT | COLOR_BUFFER_BIT);
+      if (0 < sketch.frameCount) {
+        clearDepth = true;
+        clearStencil = true;
+      }
+    } else if (depth) {
+      clearDepth(1);
+      clear(DEPTH_BUFFER_BIT | COLOR_BUFFER_BIT);
+      if (0 < sketch.frameCount) {
+        clearDepth = true;
+      }
+    } else if (stencil) {
+      clearStencil(0);
+      clear(STENCIL_BUFFER_BIT | COLOR_BUFFER_BIT);
+      if (0 < sketch.frameCount) {
+        clearStencil = true;
+      }
+    } else {
+      clear(PGL.COLOR_BUFFER_BIT);
+    }
     if (0 < sketch.frameCount) {
       clearColor = true;
     }
@@ -659,6 +702,12 @@ public abstract class PGL {
 
     pclearColor = clearColor;
     clearColor = false;
+
+    pclearDepth = clearDepth;
+    clearColor = false;
+
+    pclearStencil = clearStencil;
+    clearStencil = false;
 
     if (SINGLE_BUFFERED && sketch.frameCount == 1) {
       restoreFirstFrame();
@@ -912,7 +961,16 @@ public abstract class PGL {
       createDepthAndStencilBuffer(true, depthBits, stencilBits, packed);
     }
 
-    validateFramebuffer();
+    int status = validateFramebuffer();
+
+    if (status == FRAMEBUFFER_INCOMPLETE_MULTISAMPLE && 1 < numSamples) {
+      System.err.println("Continuing with multisampling disabled");
+      reqNumSamples = 1;
+      destroyFBOLayer();
+      // try again
+      createFBOLayer();
+      return;
+    }
 
     // Clear all buffers.
     clearDepth(1);
@@ -942,6 +1000,8 @@ public abstract class PGL {
 
 
   protected void restoreFirstFrame() {
+    if (firstFrame == null) return;
+
     IntBuffer tex = allocateIntBuffer(1);
     genTextures(1, tex);
 
@@ -1863,7 +1923,7 @@ public abstract class PGL {
       Pattern[] search = new Pattern[] {
           Pattern.compile(String.format(GLSL_ID_REGEX, "varying|attribute")),
           Pattern.compile(String.format(GLSL_ID_REGEX, "texture")),
-          Pattern.compile(String.format(GLSL_FN_REGEX, "textureRect|texture2D|texture3D|textureCube")),
+          Pattern.compile(String.format(GLSL_FN_REGEX, "texture2DRect|texture2D|texture3D|textureCube")),
           Pattern.compile(String.format(GLSL_ID_REGEX, "gl_FragColor"))
       };
       String[] replace = new String[] {
@@ -1903,7 +1963,7 @@ public abstract class PGL {
           Pattern.compile(String.format(GLSL_ID_REGEX, "varying")),
           Pattern.compile(String.format(GLSL_ID_REGEX, "attribute")),
           Pattern.compile(String.format(GLSL_ID_REGEX, "texture")),
-          Pattern.compile(String.format(GLSL_FN_REGEX, "textureRect|texture2D|texture3D|textureCube"))
+          Pattern.compile(String.format(GLSL_FN_REGEX, "texture2DRect|texture2D|texture3D|textureCube"))
       };
       String[] replace = new String[] {
           "out", "in", "texMap", "texture",
@@ -1997,10 +2057,13 @@ public abstract class PGL {
   }
 
 
-  protected boolean validateFramebuffer() {
+  protected int validateFramebuffer() {
     int status = checkFramebufferStatus(FRAMEBUFFER);
     if (status == FRAMEBUFFER_COMPLETE) {
-      return true;
+      return 0;
+    } else if (status == FRAMEBUFFER_UNDEFINED) {
+      System.err.println(String.format(FRAMEBUFFER_ERROR,
+                                       "framebuffer undefined"));
     } else if (status == FRAMEBUFFER_INCOMPLETE_ATTACHMENT) {
       System.err.println(String.format(FRAMEBUFFER_ERROR,
                                        "incomplete attachment"));
@@ -2013,14 +2076,26 @@ public abstract class PGL {
     } else if (status == FRAMEBUFFER_INCOMPLETE_FORMATS) {
       System.err.println(String.format(FRAMEBUFFER_ERROR,
                                        "incomplete formats"));
+    } else if (status == FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER) {
+      System.err.println(String.format(FRAMEBUFFER_ERROR,
+                                       "incomplete draw buffer"));
+    } else if (status == FRAMEBUFFER_INCOMPLETE_READ_BUFFER) {
+      System.err.println(String.format(FRAMEBUFFER_ERROR,
+                                       "incomplete read buffer"));
     } else if (status == FRAMEBUFFER_UNSUPPORTED) {
       System.err.println(String.format(FRAMEBUFFER_ERROR,
                                        "framebuffer unsupported"));
+    } else if (status == FRAMEBUFFER_INCOMPLETE_MULTISAMPLE) {
+      System.err.println(String.format(FRAMEBUFFER_ERROR,
+                                       "incomplete multisample buffer"));
+    } else if (status == FRAMEBUFFER_INCOMPLETE_LAYER_TARGETS) {
+      System.err.println(String.format(FRAMEBUFFER_ERROR,
+                                       "incomplete layer targets"));
     } else {
       System.err.println(String.format(FRAMEBUFFER_ERROR,
-                                       "unknown error"));
+                                       "unknown error " + status));
     }
-    return false;
+    return status;
   }
 
   protected boolean isES() {
@@ -2097,7 +2172,11 @@ public abstract class PGL {
     int major = getGLVersion()[0];
     if (major < 3) {
       String ext = getString(EXTENSIONS);
-      return -1 < ext.indexOf("_texture_non_power_of_two");
+      if (isES()) {
+        return -1 < ext.indexOf("_texture_npot");
+      } else {
+        return -1 < ext.indexOf("_texture_non_power_of_two");
+      }
     } else {
       return true;
     }
@@ -2106,11 +2185,13 @@ public abstract class PGL {
 
   protected boolean hasAutoMipmapGenSupport() {
     int major = getGLVersion()[0];
-    if (major < 3) {
+    if (isES() && major >= 2) {
+      return true;
+    } else if (!isES() && major >= 3) {
+      return true;
+    } else {
       String ext = getString(EXTENSIONS);
       return -1 < ext.indexOf("_generate_mipmap");
-    } else {
-      return true;
     }
   }
 
@@ -2928,6 +3009,7 @@ public abstract class PGL {
   public static int DEPTH_STENCIL;
 
   public static int FRAMEBUFFER_COMPLETE;
+  public static int FRAMEBUFFER_UNDEFINED;
   public static int FRAMEBUFFER_INCOMPLETE_ATTACHMENT;
   public static int FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT;
   public static int FRAMEBUFFER_INCOMPLETE_DIMENSIONS;
@@ -2935,6 +3017,8 @@ public abstract class PGL {
   public static int FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER;
   public static int FRAMEBUFFER_INCOMPLETE_READ_BUFFER;
   public static int FRAMEBUFFER_UNSUPPORTED;
+  public static int FRAMEBUFFER_INCOMPLETE_MULTISAMPLE;
+  public static int FRAMEBUFFER_INCOMPLETE_LAYER_TARGETS;
 
   public static int FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE;
   public static int FRAMEBUFFER_ATTACHMENT_OBJECT_NAME;

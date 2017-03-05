@@ -32,7 +32,7 @@ import org.eclipse.jdt.core.dom.TypeDeclaration;
 import org.eclipse.jdt.core.dom.VariableDeclarationFragment;
 
 
-public class CompletionCandidate implements Comparable<CompletionCandidate>{
+public class CompletionCandidate implements Comparable<CompletionCandidate> {
   private final String elementName;
   private final String label; // the toString value
   private final String completionString;
@@ -96,7 +96,7 @@ public class CompletionCandidate implements Comparable<CompletionCandidate>{
       type = LOCAL_FIELD;
     else
       type = LOCAL_VAR;
-    label = vdf.getName() + " : " + ASTGenerator.extracTypeInfo2(vdf);
+    label = vdf.getName() + " : " + CompletionGenerator.extracTypeInfo2(vdf);
     wrappedObject = vdf;
   }
 

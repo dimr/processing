@@ -11,7 +11,7 @@ import org.apache.tools.ant.Task;
  */
 public class Downloader extends Task {
   static final String COOKIE =
-    "gpw_e24=http%3A%2F%2Fwww.oracle.com%2F; " +
+    //"gpw_e24=http%3A%2F%2Fwww.oracle.com%2F; " +
     "oraclelicense=accept-securebackup-cookie";
 
   private int version;  // Java 8
@@ -23,7 +23,7 @@ public class Downloader extends Task {
 //  private String platform;  // macosx, windows, linux
 //  private String bits;  // i586 or x64
   private String flavor;
-  
+
   private String path;  // target path
 //  private File baseDir;
 //  private boolean includeRecorder;
@@ -50,22 +50,22 @@ public class Downloader extends Task {
   public void setJDK(boolean jdk) {
     this.jdk = jdk;
   }
-  
-  
+
+
 //  public void setPlatform(String platform) {
 //    this.platform = platform;
 //  }
-  
-  
+
+
 //  public void setBits(String bits) {
 //    this.bits = bits;
 //  }
-  
+
   public void setFlavor(String flavor) {
     this.flavor = flavor;
   }
-  
-  
+
+
   public void setPath(String path) {
     this.path = path;
   }
@@ -75,15 +75,15 @@ public class Downloader extends Task {
     //if (baseDir == null) {
     //  throw new BuildException("dir parameter must be set!");
     //}
-    
+
     if (version == 0) {
       throw new BuildException("version (i.e. 7 or 8) must be set");
     }
-    
+
     if (build == 0) {
       throw new BuildException("build number must be set");
     }
-    
+
     if (flavor == null) {
       throw new BuildException("you've gotta choose a flavor (macosx-x64.dmg, windows-x64.exe...");
     }
@@ -97,7 +97,7 @@ public class Downloader extends Task {
     } catch (IOException e) {
       throw new BuildException(e);
     }
-    
+
     /*
     downloadJRE("linux-i586.tar.gz");
     downloadJRE("linux-x64.tar.gz");
@@ -126,15 +126,15 @@ public class Downloader extends Task {
       (update == 0 ?
        String.format("-%d-%s", version, flavor) :
        String.format("-%du%d-%s", version, update, flavor));
-    
+
     if (path == null) {
       path = filename;  //System.getProperty("user.dir");
     }
 
     //String url = "http://download.oracle.com/otn-pub/java/jdk/" +
     // https://edelivery.oracle.com/otn-pub/java/jdk/7u45-b18/jre-7u45-linux-i586.tar.gz
-    String url = "https://edelivery.oracle.com/otn-pub/java/jdk/" +
-    //String url = "https://download.oracle.com/otn-pub/java/jdk/" +
+    //String url = "https://edelivery.oracle.com/otn-pub/java/jdk/" +
+    String url = "http://download.oracle.com/otn-pub/java/jdk/" +
       (update == 0 ?
        String.format("%d-b%02d/", version, build) :
        String.format("%du%d-b%02d/", version, update, build)) + filename;
@@ -148,18 +148,21 @@ public class Downloader extends Task {
 
     //printHeaders(conn);
     //conn.connect();
-    if (conn.getResponseCode() == 302) {
+    while (conn.getResponseCode() == 302) {
       Map<String, List<String>> headers = conn.getHeaderFields();
       List<String> location = headers.get("Location");
       if (location.size() == 1) {
         url = location.get(0);
+        System.out.println("Redirecting to " + url);
       } else {
         throw new BuildException("Got " + location.size() + " locations.");
       }
       List<String> cookies = headers.get("Set-Cookie");
       conn = (HttpURLConnection) new URL(url).openConnection();
-      for (String cookie : cookies) {
-        conn.setRequestProperty("Cookie", cookie);
+      if (cookies != null) {
+        for (String cookie : cookies) {
+          conn.setRequestProperty("Cookie", cookie);
+        }
       }
       conn.setRequestProperty("Cookie", COOKIE);
       conn.connect();
@@ -190,8 +193,8 @@ public class Downloader extends Task {
         }
       }
       if (!tempFile.renameTo(outputFile)) {
-        throw new BuildException(String.format("Could not rename %s to %s", 
-                                               tempFile.getAbsolutePath(), 
+        throw new BuildException(String.format("Could not rename %s to %s",
+                                               tempFile.getAbsolutePath(),
                                                outputFile.getAbsolutePath()));
       }
     } else {

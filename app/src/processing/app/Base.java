@@ -3,7 +3,7 @@
 /*
   Part of the Processing project - http://processing.org
 
-  Copyright (c) 2012-15 The Processing Foundation
+  Copyright (c) 2012-17 The Processing Foundation
   Copyright (c) 2004-12 Ben Fry and Casey Reas
   Copyright (c) 2001-04 Massachusetts Institute of Technology
 
@@ -55,14 +55,17 @@ import processing.data.StringList;
 public class Base {
   // Added accessors for 0218 because the UpdateCheck class was not properly
   // updating the values, due to javac inlining the static final values.
-  static private final int REVISION = 249;
+  static private final int REVISION = 258;
   /** This might be replaced by main() if there's a lib/version.txt file. */
-  static private String VERSION_NAME = "0249"; //$NON-NLS-1$
+  static private String VERSION_NAME = "0258"; //$NON-NLS-1$
   /** Set true if this a proper release rather than a numbered revision. */
 
-  /** True if heavy debugging error/log messages are enabled */
-  static public boolean DEBUG = false;
-//  static public boolean DEBUG = true;
+  /**
+   * True if heavy debugging error/log messages are enabled. Set to true
+   * if an empty file named 'debug' is found in the settings folder.
+   * See implementation in createAndShowGUI().
+   */
+  static public boolean DEBUG;
 
   static private boolean commandLine;
 
@@ -129,7 +132,6 @@ public class Base {
         String version = PApplet.loadStrings(versionFile)[0];
         if (!version.equals(VERSION_NAME)) {
           VERSION_NAME = version;
-//          RELEASE = true;
         }
       }
     } catch (Exception e) {
@@ -137,6 +139,19 @@ public class Base {
     }
 
     Platform.init();
+    // call after Platform.init() because we need the settings folder
+    Console.startup();
+
+    // Set the debug flag based on a file being present in the settings folder
+    File debugFile = getSettingsFile("debug.txt");
+    /*
+    if (debugFile.isDirectory()) {
+      // if it's a directory, it's a leftover from older releases, clear it
+      Util.removeDir(debugFile);
+    } else*/
+    if (debugFile.exists()) {
+      DEBUG = true;
+    }
 
     // Use native popups so they don't look so crappy on OS X
     JPopupMenu.setDefaultLightWeightPopupEnabled(false);
@@ -185,7 +200,6 @@ public class Base {
       // Get the sketchbook path, and make sure it's set properly
       locateSketchbookFolder();
 
-
       // Create a location for untitled sketches
       try {
         untitledFolder = Util.createTempFolder("untitled", "sketches", null);
@@ -196,28 +210,27 @@ public class Base {
                            "That's gonna prevent us from continuing.", e);
       }
 
-      Messages.log("about to create base..."); //$NON-NLS-1$
+      Messages.log("About to create Base..."); //$NON-NLS-1$
       try {
         final Base base = new Base(args);
+        Messages.log("Base() constructor succeeded");
+
         // Prevent more than one copy of the PDE from running.
         SingleInstance.startServer(base);
 
         // Needs to be shown after the first editor window opens, so that it
         // shows up on top, and doesn't prevent an editor window from opening.
         if (Preferences.getBoolean("welcome.show")) {
-          final boolean prompt = sketchbookPrompt;
-          EventQueue.invokeLater(new Runnable() {
-            public void run() {
-              try {
-                new Welcome(base, prompt);
-              } catch (IOException e) {
-                Messages.showTrace("Unwelcoming",
-                                   "Please report this error to\n" +
-                                   "https://github.com/processing/processing/issues", e, false);
-              }
-            }
-          });
+          try {
+            new Welcome(base, sketchbookPrompt);
+          } catch (IOException e) {
+            Messages.showTrace("Unwelcoming",
+                               "Please report this error to\n" +
+                               "https://github.com/processing/processing/issues", e, false);
+          }
         }
+
+        checkDriverBug();
 
       } catch (Throwable t) {
         // Catch-all to pick up badness during startup.
@@ -229,7 +242,39 @@ public class Base {
         Messages.showTrace("We're off on the wrong foot",
                            "An error occurred during startup.", t, true);
       }
-      Messages.log("done creating base..."); //$NON-NLS-1$
+      Messages.log("Done creating Base..."); //$NON-NLS-1$
+    }
+  }
+
+
+  // Remove this code in a couple months [fry 170211]
+  // https://github.com/processing/processing/issues/4853
+  static private void checkDriverBug() {
+    if (Platform.isWindows()) {
+      new Thread(new Runnable() {
+        public void run() {
+          try {
+            Process p = Runtime.getRuntime().exec("powershell Get-WmiObject Win32_PnPSignedDriver| select devicename, driverversion | where {$_.devicename -like \\\"*nvidia*\\\"}");
+            String[] lines = PApplet.loadStrings(PApplet.createReader(p.getInputStream()));
+            for (String line : lines) {
+              if (line.contains("3.7849")) {
+                EventQueue.invokeLater(new Runnable() {
+                  public void run() {
+                    Messages.showWarning("NVIDIA screwed up",
+                                         "Due to an NVIDIA bug, you need to update your graphics drivers,\n" +
+                                         "otherwise you won't be able to run any sketches. Update here:\n" +
+                                         "http://nvidia.custhelp.com/app/answers/detail/a_id/4378\n" +
+                                         "or read background about the issue at this link:\n" +
+                                         "https://github.com/processing/processing/issues/4853");
+                  }
+                });
+              }
+            }
+          } catch (Exception e) {
+            Messages.loge("Problem checking NVIDIA driver", e);
+          }
+        }
+      }).start();
     }
   }
 
@@ -314,6 +359,8 @@ public class Base {
 
     // Check if any files were passed in on the command line
     for (int i = 0; i < args.length; i++) {
+      Messages.logf("Parsing command line... args[%d] = '%s'", i, args[i]);
+
       String path = args[i];
       // Fix a problem with systems that use a non-ASCII languages. Paths are
       // being passed in with 8.3 syntax, which makes the sketch loader code
@@ -323,6 +370,7 @@ public class Base {
         try {
           File file = new File(args[i]);
           path = file.getCanonicalPath();
+          Messages.logf("Changing %s to canonical %s", i, args[i], path);
         } catch (IOException e) {
           e.printStackTrace();
         }
@@ -334,10 +382,10 @@ public class Base {
 
     // Create a new empty window (will be replaced with any files to be opened)
     if (!opened) {
-//      System.out.println("opening a new window");
+      Messages.log("Calling handleNew() to open a new window");
       handleNew();
-//    } else {
-//      System.out.println("something else was opened");
+    } else {
+      Messages.log("No handleNew(), something passed on the command line");
     }
 
     // check for updates
@@ -397,13 +445,18 @@ public class Base {
             contribModes.add(new ModeContribution(this, folder, null));
           } catch (NoSuchMethodError nsme) {
             System.err.println(folder.getName() + " is not compatible with this version of Processing");
+            if (DEBUG) nsme.printStackTrace();
           } catch (NoClassDefFoundError ncdfe) {
             System.err.println(folder.getName() + " is not compatible with this version of Processing");
+            if (DEBUG) ncdfe.printStackTrace();
           } catch (InvocationTargetException ite) {
             System.err.println(folder.getName() + " could not be loaded and may not compatible with this version of Processing");
+            if (DEBUG) ite.printStackTrace();
           } catch (IgnorableException ig) {
             Messages.log(ig.getMessage());
+            if (DEBUG) ig.printStackTrace();
           } catch (Throwable e) {
+            System.err.println("Could not load Mode from " + folder);
             e.printStackTrace();
           }
         } else {
@@ -818,11 +871,11 @@ public class Base {
       String entry = c.getTypeName() + "=" +
         PApplet.urlEncode(String.format("name=%s\nurl=%s\nrevision=%d\nversion=%s",
                                         c.getName(), c.getUrl(),
-                                        c.getVersion(), c.getPrettyVersion()));
+                                        c.getVersion(), c.getBenignVersion()));
       entries.append(entry);
     }
     String joined =
-      "id=" + Preferences.get("update.id") + "&" + entries.join("&");
+      "id=" + UpdateCheck.getUpdateID() + "&" + entries.join("&");
 //    StringBuilder sb = new StringBuilder();
 //    try {
 //      // Truly ridiculous attempt to shove everything into a GET request.
@@ -880,14 +933,16 @@ public class Base {
   /**
    * The call has already checked to make sure this sketch is not modified,
    * now change the mode.
+   * @return true if mode is changed.
    */
-  public void changeMode(Mode mode) {
-    if (activeEditor.getMode() != mode) {
+  public boolean changeMode(Mode mode) {
+    Mode oldMode = activeEditor.getMode();
+    if (oldMode != mode) {
       Sketch sketch = activeEditor.getSketch();
       nextMode = mode;
 
       if (sketch.isUntitled()) {
-        // If no changes have been made, just close and start fresh.
+        // The current sketch is empty, just close and start fresh.
         // (Otherwise the editor would lose its 'untitled' status.)
         handleClose(activeEditor, true);
         handleNew();
@@ -896,20 +951,30 @@ public class Base {
         // If the current editor contains file extensions that the new mode can handle, then
         // write a sketch.properties file with the new mode specified, and reopen.
         boolean newModeCanHandleCurrentSource = true;
-        for (final SketchCode code: sketch.getCode()) {
+        for (final SketchCode code : sketch.getCode()) {
           if (!mode.validExtension(code.getExtension())) {
             newModeCanHandleCurrentSource = false;
             break;
           }
         }
-        if (newModeCanHandleCurrentSource) {
+        if (!newModeCanHandleCurrentSource) {
+          return false;
+        } else {
           final File props = new File(sketch.getCodeFolder(), "sketch.properties");
           saveModeSettings(props, nextMode);
           handleClose(activeEditor, true);
-          handleOpen(sketch.getMainFilePath());
+          Editor editor = handleOpen(sketch.getMainFilePath());
+          if (editor == null) {
+            // the Mode change failed (probably code that's out of date)
+            // re-open the sketch using the mode we were in before
+            saveModeSettings(props, oldMode);
+            handleOpen(sketch.getMainFilePath());
+            return false;
+          }
         }
       }
     }
+    return true;
   }
 
 
@@ -1077,12 +1142,17 @@ public class Base {
       // Make the directory for the new sketch
       newbieDir.mkdirs();
 
+      // Add any template files from the Mode itself
+      File newbieFile = nextMode.addTemplateFiles(newbieDir, newbieName);
+
+      /*
       // Make an empty pde file
       File newbieFile =
         new File(newbieDir, newbieName + "." + nextMode.getDefaultExtension()); //$NON-NLS-1$
       if (!newbieFile.createNewFile()) {
         throw new IOException(newbieFile + " already exists.");
       }
+      */
 
       // Create sketch properties file if it's not the default mode.
       if (!nextMode.equals(getDefaultMode())) {
@@ -1269,6 +1339,31 @@ public class Base {
                              "Try updating the Mode or contact its author for a new version.", t, false);
         }
       }
+      if (editors.isEmpty()) {
+        Mode defaultMode = getDefaultMode();
+        if (nextMode == defaultMode) {
+          // unreachable? hopefully?
+          Messages.showError("Editor Problems",
+                             "An error occurred while trying to change modes.\n" +
+                             "We'll have to quit for now because it's an\n" +
+                             "unfortunate bit of indigestion with the default Mode.",
+                             null);
+        } else {
+          // Don't leave the user hanging or the PDE locked up
+          // https://github.com/processing/processing/issues/4467
+          if (untitled) {
+            nextMode = defaultMode;
+            handleNew();
+            return null;  // ignored by any caller
+
+          } else {
+            // This null response will be kicked back to changeMode(),
+            // signaling it to re-open the sketch in the default Mode.
+            return null;
+          }
+        }
+      }
+
       /*
         if (editors.isEmpty()) {
           // if the bad mode is the default mode, don't go into an infinite loop
@@ -1409,6 +1504,9 @@ public class Base {
       }
       // Save out the current prefs state
       Preferences.save();
+
+      // Finished with this guy
+      Console.shutdown();
 
       if (!Platform.isMacOS()) {
         // If this was fired from the menu or an AppleEvent (the Finder),
@@ -1827,6 +1925,7 @@ public class Base {
     getSketchbookToolsFolder().mkdirs();
     getSketchbookModesFolder().mkdirs();
     getSketchbookExamplesFolder().mkdirs();
+    getSketchbookTemplatesFolder().mkdirs();
   }
 
 
@@ -1852,6 +1951,11 @@ public class Base {
 
   static public File getSketchbookExamplesFolder() {
     return new File(sketchbookFolder, "examples");
+  }
+
+
+  static public File getSketchbookTemplatesFolder() {
+    return new File(sketchbookFolder, "templates");
   }
 
 

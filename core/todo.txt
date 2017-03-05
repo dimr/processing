@@ -1,30 +1,63 @@
-0249 (3.0.3)
+0258 (3.3.1)
+X improve sum() functions in processing.data
+X   add sum() to IntDict and FloatDict
+X   add sumLong() to IntList, IntDict (to handle cases outside integer range)
+X   add sumDouble() to FloatList, FloatDict (to handle outside float range)
+X   throw exception when using sum() with numbers that are too large or small
+X createInput() and createOutput() now both use buffered streams by default
+X   createInputRaw() does not, however
 
+
+gohai
+X Fix MeshTweening vertex shader
+X   https://github.com/processing/processing-docs/issues/523
+X   https://github.com/processing/processing-docs/pull/524
+X ARM: Allow Raspberry Pi's Mesa GL driver to use up to 8 lights
+X   https://github.com/processing/processing/pull/4915
+X   ...and revert it back again
+X   https://github.com/processing/processing/pull/4922
+X Retry with multisampling disabled if creating a framebuffer fails
+X   because of INCOMPLETE_MULTISAMPLE
+X   https://github.com/processing/processing/pull/4921
+X Report more error conditions in validateFramebuffer
+X   https://github.com/processing/processing/pull/4920
+
+
+high
+_ implement sketch scaling into PApplet
+_   https://github.com/processing/processing/issues/4897
+_ Sketches on Windows don't take UI sizing into account
+_   https://github.com/processing/processing/issues/4894
+_ Sketches on Linux don't take UI scaling into account
+_   https://github.com/processing/processing/issues/4895
+
+
+_ TRIANGLE_STRIP not working correctly with createShape() and default renderer
+_   https://github.com/processing/processing/issues/4678
+
+_ should we drop the 'default' prefix from the ex handler so it's not static?
+_   http://docs.oracle.com/javase/1.5.0/docs/api/java/lang/Thread.html
+
+_ option to disable OpenGL ES on Linux? 
+_   https://github.com/processing/processing/issues/4584
 
 _ textAlign(CENTER) and pixelDensity(2) aligning incorrectly with Java2D
 _   https://github.com/processing/processing/issues/4020
-_ add increment() that takes IntDict to merge things
+_   calling textSize() fixes it
 
-_ normalize error messages for missing files
-_   https://github.com/processing/processing/issues/4265
-_   https://github.com/processing/processing/pull/4268
-
-
-_ fix menu bar hiding in exported JavaFX apps
-_   just call it around setup time? 
 _ should fullScreen() set width and height to displayWidth/Height
 _   or is that being set/unset used for any state info?
 _ when calling exit(), if sketch has halted w/ exception, force the quit
 _   otherwise have to double-quit with cmd-q on OS X
 _   simple test case: using size() inside setup() from Eclipse
+
+
+discussion
+_ how to handle the touch api
 _ figure our size(img.width, img.height) situation
-_   just make loadImage() work in settings
+X   just make loadImage() work in settings
 _   update the wiki and reference
-_ menu bar not hiding properly in exported applications with FX2D
-_   hideMenuBar() called from setup() works fine
-_ see if 8u65 or 8u66 fix the JavaFX problem
-_   if not, need to add them to the block list
-_ the --hide-stop option not working (FX only? traces?)
+_ size() function that scales to screen, keeps aspect, re-scales mouse coords
 
 
 known
@@ -53,6 +86,13 @@ _   https://github.com/processing/processing/issues/3753
 
 
 javafx
+_ wrong window size with fullScreen()
+_   https://github.com/processing/processing/issues/4737
+_ menu bar not hiding properly in exported applications with FX2D
+_   https://github.com/processing/processing/issues/4527
+_   hideMenuBar() called from setup() works fine
+_   just call it around setup time? 
+_ the --hide-stop option not working (FX only? traces?)
 _ make wiki about quirks
 _   starving the thread makes things really slow down
 _   keyPressed() is always uppercase, keyTyped() will be correct
@@ -85,7 +125,6 @@ _   https://www.linkedin.com/pulse/oracle-just-removed-javafx-support-arm-jan-sn
 
 
 opengl questions
-_ hard crash at 1920x1080, mirrored, Casey's GT 650M 1GB
 _ exitCalled() and exitActual made public by Andres, breaks Python
 _   also not API we want to expose, so sort this out
 _   or maybe we're fine b/c now FX2D needs it as well
@@ -165,11 +204,6 @@ _   may be related to full-screen bug filed recently
 _ closing a sketch window manually (not hitting Stop) not killing sketch
 _   at least with the Java2D renderer
 _ don't override the window icon w/ p5 logo if already set
-
-
-retina/hidpi
-_ no high-dpi support for core on Windows
-_   https://github.com/processing/processing/issues/2411
 
 
 decisions/misc
@@ -280,11 +314,6 @@ _   will need documentation
 _ negative indices so that we can work relative to the end in data classes?
 _ add Double and Long versions of the data classes?
 _ add requestFocus() method to PApplet (or surface?)
-o destroy() removed, but bring back? is that better than dispose()?
-_   destroy() only called dispose(), so no difference
-_   Python Mode has a hook for when it's called
-_ probably should also check to make sure PApplet running JVM 8
-_   or compile against 1.8 and force it?
 
 
 
@@ -352,6 +381,9 @@ _   is there a way to catch cmd-q when running a sketch?
 _     so that it could avoid quitting if the sketch hasn't been stopped
 _     or if the sketch window is foremost
 _     maybe a hack where a new menubar is added? 
+o destroy() removed, but bring back? is that better than dispose()?
+_   destroy() only called dispose(), so no difference
+_   Python Mode has a hook for when it's called
 
 
 CORE / PFont and text()
@@ -682,9 +714,6 @@ _   . Textblock
 _   \ Knob
 _   \ Progress bar
 _   \ Toggle
-_ implement JSON class
-_   http://www.xml.com/lpt/a/1658
-_   http://www.json.org/java/
 _ add shader support
 _ createColor() instead of color()?
 _ route all exceptions through PException and catch method

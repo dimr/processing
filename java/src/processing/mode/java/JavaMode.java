@@ -30,10 +30,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
-import java.util.logging.FileHandler;
-import java.util.logging.Handler;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 import javax.swing.SwingUtilities;
 
@@ -56,7 +52,7 @@ public class JavaMode extends Mode {
   public JavaMode(Base base, File folder) {
     super(base, folder);
 
-    initLogger();
+//    initLogger();
     loadPreferences();
   }
 
@@ -117,33 +113,6 @@ public class JavaMode extends Mode {
   // . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
 
 
-  /*
-  public Runner handleRun(Sketch sketch,
-                          RunnerListener listener) throws SketchException {
-    final JavaEditor editor = (JavaEditor) listener;
-    editor.errorCheckerService.quickErrorCheck();
-//    if (enableTweak) {
-//      enableTweak = false;
-//      return handleTweak(sketch, listener, false);
-//    } else {
-    return handleLaunch(sketch, listener, false);
-//    }
-  }
-
-
-  public Runner handlePresent(Sketch sketch,
-                              RunnerListener listener) throws SketchException {
-    final JavaEditor editor = (JavaEditor) listener;
-    editor.errorCheckerService.quickErrorCheck();
-//    if (enableTweak) {
-//      enableTweak = false;
-//      return handleTweak(sketch, listener, true);
-//    } else {
-    return handleLaunch(sketch, listener, true);
-//    }
-  }
-  */
-
 
   /** Handles the standard Java "Run" or "Present" */
   public Runner handleLaunch(Sketch sketch, RunnerListener listener,
@@ -174,14 +143,6 @@ public class JavaMode extends Mode {
                             RunnerListener listener) throws SketchException {
 //                            final boolean present) throws SketchException {
     final JavaEditor editor = (JavaEditor) listener;
-//    editor.errorCheckerService.quickErrorCheck();  // done in prepareRun()
-
-    if (isSketchModified(sketch)) {
-      editor.deactivateRun();
-      Messages.showMessage(Language.text("menu.file.save"),
-                           Language.text("tweak_mode.save_before_tweak"));
-      return null;
-    }
 
     // first try to build the unmodified code
     JavaBuild build = new JavaBuild(sketch);
@@ -246,6 +207,7 @@ public class JavaMode extends Mode {
   }
 
 
+  /*
   // TODO Why is this necessary? Why isn't Sketch.isModified() used?
   static private boolean isSketchModified(Sketch sketch) {
     for (SketchCode sc : sketch.getCode()) {
@@ -255,6 +217,7 @@ public class JavaMode extends Mode {
     }
     return false;
   }
+  */
 
 
 //  public void handleStop() {
@@ -291,7 +254,7 @@ public class JavaMode extends Mode {
 
   // Merged from ExperimentalMode
 
-
+  /*
   void initLogger() {
     final boolean VERBOSE_LOGGING = true;
     final int LOG_SIZE = 512 * 1024; // max log file size (in bytes)
@@ -321,6 +284,7 @@ public class JavaMode extends Mode {
       Logger.getLogger(JavaMode.class.getName()).log(Level.SEVERE, null, ex);
     }
   }
+  */
 
 
   //ImageIcon classIcon, fieldIcon, methodIcon, localVarIcon;
@@ -343,7 +307,8 @@ public class JavaMode extends Mode {
   static public volatile boolean autoSavePromptEnabled = true;
   static public volatile boolean defaultAutoSaveEnabled = true;
   static public volatile boolean ccTriggerEnabled = false;
-//  static public volatile boolean importSuggestEnabled = true;
+  static public volatile boolean importSuggestEnabled = true;
+  static public volatile boolean inspectModeHotkeyEnabled = true;
   static public int autoSaveInterval = 3; //in minutes
 
 
@@ -365,6 +330,7 @@ public class JavaMode extends Mode {
   static public final String COMPLETION_PREF = "pdex.completion";
   static public final String COMPLETION_TRIGGER_PREF = "pdex.completion.trigger";
   static public final String SUGGEST_IMPORTS_PREF = "pdex.suggest.imports";
+  static public final String INSPECT_MODE_HOTKEY_PREF = "pdex.inspectMode.hotkey";
 
 //  static volatile public boolean enableTweak = false;
 
@@ -388,7 +354,8 @@ public class JavaMode extends Mode {
     autoSavePromptEnabled = Preferences.getBoolean(prefAutoSavePrompt);
     defaultAutoSaveEnabled = Preferences.getBoolean(prefDefaultAutoSave);
     ccTriggerEnabled = Preferences.getBoolean(COMPLETION_TRIGGER_PREF);
-//    importSuggestEnabled = Preferences.getBoolean(prefImportSuggestEnabled);
+    importSuggestEnabled = Preferences.getBoolean(SUGGEST_IMPORTS_PREF);
+    inspectModeHotkeyEnabled = Preferences.getBoolean(INSPECT_MODE_HOTKEY_PREF);
     loadSuggestionsMap();
   }
 
@@ -406,7 +373,8 @@ public class JavaMode extends Mode {
     Preferences.setBoolean(prefAutoSavePrompt, autoSavePromptEnabled);
     Preferences.setBoolean(prefDefaultAutoSave, defaultAutoSaveEnabled);
     Preferences.setBoolean(COMPLETION_TRIGGER_PREF, ccTriggerEnabled);
-//    Preferences.setBoolean(prefImportSuggestEnabled, importSuggestEnabled);
+    Preferences.setBoolean(SUGGEST_IMPORTS_PREF, importSuggestEnabled);
+    Preferences.setBoolean(INSPECT_MODE_HOTKEY_PREF, inspectModeHotkeyEnabled);
   }
 
   public void loadSuggestionsMap() {
@@ -475,8 +443,10 @@ public class JavaMode extends Mode {
       Preferences.setBoolean(prefDefaultAutoSave, defaultAutoSaveEnabled);
     if (Preferences.get(COMPLETION_TRIGGER_PREF) == null)
       Preferences.setBoolean(COMPLETION_TRIGGER_PREF, ccTriggerEnabled);
-//    if (Preferences.get(prefImportSuggestEnabled) == null)
-//      Preferences.setBoolean(prefImportSuggestEnabled, importSuggestEnabled);
+    if (Preferences.get(SUGGEST_IMPORTS_PREF) == null)
+      Preferences.setBoolean(SUGGEST_IMPORTS_PREF, importSuggestEnabled);
+    if (Preferences.get(INSPECT_MODE_HOTKEY_PREF) == null)
+      Preferences.setBoolean(INSPECT_MODE_HOTKEY_PREF, inspectModeHotkeyEnabled);
   }
 
 

@@ -84,7 +84,8 @@ public class FileTextFieldTransferHandler extends TransferHandler {
             }
 
             try {
-                java.util.List list = (List) t.getTransferData(DataFlavor.javaFileListFlavor);
+                List<?> list = (List<?>) 
+                    t.getTransferData(DataFlavor.javaFileListFlavor);
                 if (list.size() > 0) {
                     File file = (File) list.get(0);
 

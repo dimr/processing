@@ -596,11 +596,23 @@ public class IntList implements Iterable<Integer> {
 
 
   public int sum() {
-    int outgoing = 0;
-    for (int i = 0; i < count; i++) {
-      outgoing += data[i];
+    long amount = sumLong();
+    if (amount > Integer.MAX_VALUE) {
+      throw new RuntimeException("sum() exceeds " + Integer.MAX_VALUE + ", use sumLong()");
     }
-    return outgoing;
+    if (amount < Integer.MIN_VALUE) {
+      throw new RuntimeException("sum() less than " + Integer.MIN_VALUE + ", use sumLong()");
+    }
+    return (int) amount;
+  }
+
+
+  public long sumLong() {
+    long sum = 0;
+    for (int i = 0; i < count; i++) {
+      sum += data[i];
+    }
+    return sum;
   }
 
 
@@ -737,6 +749,7 @@ public class IntList implements Iterable<Integer> {
 
       public void remove() {
         IntList.this.remove(index);
+        index--;
       }
 
       public Integer next() {
@@ -866,23 +879,22 @@ public class IntList implements Iterable<Integer> {
 
 
   public void print() {
-    for (int i = 0; i < size(); i++) {
+    for (int i = 0; i < count; i++) {
       System.out.format("[%d] %d%n", i, data[i]);
     }
   }
 
 
+  /**
+   * Return this dictionary as a String in JSON format.
+   */
+  public String toJSON() {
+    return "[ " + join(", ") + " ]";
+  }
+
+
   @Override
   public String toString() {
-    StringBuilder sb = new StringBuilder();
-    sb.append(getClass().getSimpleName() + " size=" + size() + " [ ");
-    for (int i = 0; i < size(); i++) {
-      if (i != 0) {
-        sb.append(", ");
-      }
-      sb.append(i + ": " + data[i]);
-    }
-    sb.append(" ]");
-    return sb.toString();
+    return getClass().getSimpleName() + " size=" + size() + " " + toJSON();
   }
 }

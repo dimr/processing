@@ -41,7 +41,6 @@ import javafx.scene.image.PixelWriter;
 import javafx.scene.image.WritableImage;
 import javafx.scene.image.WritablePixelFormat;
 import javafx.scene.paint.Color;
-import javafx.scene.paint.Paint;
 import javafx.scene.shape.ArcType;
 import javafx.scene.shape.StrokeLineCap;
 import javafx.scene.shape.StrokeLineJoin;
@@ -64,6 +63,7 @@ public class PGraphicsFX2D extends PGraphics {
   Path2D workPath = new Path2D();
   Path2D auxPath = new Path2D();
   boolean openContour;
+  boolean adjustedForThinLines;
   /// break the shape at the next vertex (next vertex() call is a moveto())
   boolean breakShape;
 
@@ -207,6 +207,7 @@ public class PGraphicsFX2D extends PGraphics {
   public void beginShape(int kind) {
     shape = kind;
     vertexCount = 0;
+    curveVertexCount = 0;
 
     workPath.reset();
     auxPath.reset();
@@ -214,7 +215,7 @@ public class PGraphicsFX2D extends PGraphics {
     flushPixels();
 
     if (drawingThinLines()) {
-      pushMatrix();
+      adjustedForThinLines = true;
       translate(0.5f, 0.5f);
     }
   }
@@ -420,8 +421,9 @@ public class PGraphicsFX2D extends PGraphics {
       }
     }
     shape = 0;
-    if (drawingThinLines()) {
-      popMatrix();
+    if (adjustedForThinLines) {
+      adjustedForThinLines = false;
+      translate(-0.5f, -0.5f);
     }
     loaded = false;
   }
@@ -2012,15 +2014,20 @@ public class PGraphicsFX2D extends PGraphics {
     modified = false;
     loaded = false;
 
+    // Save drawing context (transform, fill, blend mode, etc.)
+    context.save();
+
+    // Reset transform to identity
+    context.setTransform(new Affine());
+
     // This only takes into account cases where this is the primary surface.
     // Not sure what we do with offscreen anyway.
-    Paint savedFill = context.getFill();
-    BlendMode savedBlend = context.getGlobalBlendMode();
     context.setFill(new Color(backgroundR, backgroundG, backgroundB, backgroundA));
     context.setGlobalBlendMode(BlendMode.SRC_OVER);
     context.fillRect(0, 0, width, height);
-    context.setFill(savedFill);
-    context.setGlobalBlendMode(savedBlend);
+
+    // Restore drawing context (transform, fill, blend mode, etc.)
+    context.restore();
   }
 
 

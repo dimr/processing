@@ -2,8 +2,6 @@ package processing.app.contrib;
 
 import java.awt.Color;
 import java.awt.Component;
-import java.awt.EventQueue;
-import java.awt.Font;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -21,7 +19,6 @@ import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableCellRenderer;
 
 import processing.app.Base;
-import processing.app.ui.Toolkit;
 
 
 public class UpdateListPanel extends ListPanel {
@@ -88,7 +85,7 @@ public class UpdateListPanel extends ListPanel {
     table.setFillsViewportHeight(true);
     table.setSelectionBackground(new Color(0xe0fffd));
     table.setSelectionForeground(table.getForeground());
-    table.setFont(Toolkit.getSansFont(14, Font.PLAIN));
+    table.setFont(ManagerFrame.NORMAL_PLAIN);
     table.setRowHeight(30);
     table.setRowMargin(6);
     table.getColumnModel().setColumnMargin(-1);
@@ -151,19 +148,13 @@ public class UpdateListPanel extends ListPanel {
     });
   }
 
+  // Thread: EDT
   @Override
   void updatePanelOrdering(Set<Contribution> contributionsSet) {
-//    int updateCount = panelByContribution.size();
-//    new Exception("update count is " + updateCount).printStackTrace(System.out);
-//    (UpdateContributionTab) contributionTab
-
     model.getDataVector().removeAllElements();
-    model.fireTableDataChanged();
     ContributionType currentType = null;
 
-    // Avoid ugly synthesized bold
-    Font boldFont = Toolkit.getSansFont(table.getFont().getSize(), Font.BOLD);
-    String fontFace = "<font face=\"" + boldFont.getName() + "\">";
+    String fontFace = "<font face=\"" + ManagerFrame.NORMAL_BOLD.getName() + "\">";
 
     for (Contribution entry : contributionsSet) {
       if (entry.getType() != currentType) {
@@ -209,40 +200,48 @@ public class UpdateListPanel extends ListPanel {
         icon,
         "<html>" + fontFace + entry.getName() + "</font></html>",
         name,
-        entry.getPrettyVersion(),
-        contributionTab.contribListing.getLatestVersion(entry)
+        entry.getBenignVersion(),
+        contributionTab.contribListing.getLatestPrettyVersion(entry)
       });
     }
+    model.fireTableDataChanged();
     UpdateContributionTab tab = (UpdateContributionTab) contributionTab;
     ((UpdateStatusPanel) tab.statusPanel).update();
   }
 
 
+  // Thread: EDT
   @Override
   public void contributionAdded(final Contribution contribution) {
     if (filter.matches(contribution)) {
-      // TODO: this should already be on EDT, check it [jv]
-      EventQueue.invokeLater(new Runnable() {
-        public void run() {
-          // TODO make this longer and more contorted [fry]
-          DetailPanel newPanel =
-            contributionTab.contribDialog.getTab(contribution.getType()).contributionListPanel.panelByContribution.get(contribution);
-          if (newPanel == null) {
-            newPanel = new DetailPanel(UpdateListPanel.this);
-          }
-          synchronized (panelByContribution) {
-            if (!panelByContribution.containsKey(contribution)) {
-              panelByContribution.put(contribution, newPanel);
-            }
-            if (newPanel != null) {
-              newPanel.setContribution(contribution);
-              add(newPanel);
-              updatePanelOrdering(panelByContribution.keySet());
-              updateColors(); // XXX this is the place
-            }
-          }
-        }
-      });
+      // TODO make this longer and more contorted [fry]
+      DetailPanel newPanel =
+        contributionTab.contribDialog.getTab(contribution.getType()).contributionListPanel.panelByContribution.get(contribution);
+      if (newPanel == null) {
+        newPanel = new DetailPanel(UpdateListPanel.this);
+      }
+      if (!panelByContribution.containsKey(contribution)) {
+        panelByContribution.put(contribution, newPanel);
+      }
+      visibleContributions.add(contribution);
+      newPanel.setContribution(contribution);
+      add(newPanel);
+      updatePanelOrdering(panelByContribution.keySet());
+      updateColors(); // XXX this is the place
     }
+  }
+
+  // Thread: EDT
+  @Override
+  public void contributionChanged(final Contribution oldContrib,
+                                  final Contribution newContrib) {
+    DetailPanel panel = panelByContribution.get(oldContrib);
+    if (panel == null) {
+      contributionAdded(newContrib);
+    } else if (newContrib.isInstalled()) {
+      panelByContribution.remove(oldContrib);
+      visibleContributions.remove(oldContrib);
+    }
+    updatePanelOrdering(visibleContributions);
   }
 }

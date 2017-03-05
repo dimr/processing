@@ -44,6 +44,7 @@ import javax.imageio.ImageIO;
 import javax.swing.ImageIcon;
 // used by selectInput(), selectOutput(), selectFolder()
 import javax.swing.JFileChooser;
+import javax.swing.UIManager;
 // used to present the fullScreen() warning about Spaces on OS X
 import javax.swing.JOptionPane;
 // used by desktopFile() method
@@ -57,6 +58,7 @@ import org.xml.sax.SAXException;
 import java.io.*;
 import java.lang.reflect.*;
 import java.net.*;
+import java.nio.charset.StandardCharsets;
 import java.text.*;
 import java.util.*;
 import java.util.regex.*;
@@ -339,8 +341,8 @@ public class PApplet implements PConstants {
    *
    * @webref environment
    * @see PApplet#pixelHeight
-   * @see pixelDensity()
-   * @see displayDensity()
+   * @see #pixelDensity(int)
+   * @see #displayDensity()
    */
   public int pixelWidth;
 
@@ -363,8 +365,8 @@ public class PApplet implements PConstants {
    *
    * @webref environment
    * @see PApplet#pixelWidth
-   * @see pixelDensity()
-   * @see displayDensity()
+   * @see #pixelDensity(int)
+   * @see #displayDensity()
    */
   public int pixelHeight;
 
@@ -731,6 +733,9 @@ public class PApplet implements PConstants {
   /** true if the sketch has stopped permanently. */
   public volatile boolean finished;
 
+  /** used by the UncaughtExceptionHandler, so has to be static */
+  static Throwable uncaughtThrowable;
+
   // public, but undocumented.. removing for 3.0a5
 //  /**
 //   * true if the animation thread is paused.
@@ -978,7 +983,7 @@ public class PApplet implements PConstants {
           stderr.append(line);
         }
       } catch (IOException e) {
-        e.printStackTrace();
+        printStackTrace(e);
       }
 
       int resultCode = -1;
@@ -990,6 +995,7 @@ public class PApplet implements PConstants {
       if ("0".equals(result)) {
         EventQueue.invokeLater(new Runnable() {
           public void run() {
+            checkLookAndFeel();
             final String msg =
               "To use fullScreen(SPAN), first turn off “Displays have separate spaces”\n" +
               "in System Preferences \u2192 Mission Control. Then log out and log back in.";
@@ -1019,7 +1025,7 @@ public class PApplet implements PConstants {
   * @webref environment
   * @see PApplet#fullScreen()
   * @see PApplet#setup()
-  * @see PApplet#size()
+  * @see PApplet#size(int,int)
   * @see PApplet#smooth()
   */
   public void settings() {
@@ -1116,8 +1122,8 @@ public class PApplet implements PConstants {
   * ( end auto-generated )
   *
   * @webref environment
-  * @see PApplet#pixelDensity()
-  * @see PApplet#size()
+  * @see PApplet#pixelDensity(int)
+  * @see PApplet#size(int,int)
   */
   public int displayDensity() {
     if (display == SPAN) {
@@ -1190,6 +1196,7 @@ public class PApplet implements PConstants {
   *
   */
   public void pixelDensity(int density) {
+    //println(density + " " + this.pixelDensity);
     if (density != this.pixelDensity) {
       if (insideSettings("pixelDensity", density)) {
         if (density != 1 && density != 2) {
@@ -1201,6 +1208,11 @@ public class PApplet implements PConstants {
         } else {
           this.pixelDensity = density;
         }
+      } else {
+        System.err.println("not inside settings");
+        // this should only be reachable when not running in the PDE,
+        // so saying it's a settings()--not just setup()--issue should be ok
+        throw new RuntimeException("pixelDensity() can only be used inside settings()");
       }
     }
   }
@@ -1411,7 +1423,7 @@ public class PApplet implements PConstants {
             throw (RuntimeException) t;
           } else {
             // trap and print as usual
-            t.printStackTrace();
+            printStackTrace(t);
           }
         }
       }
@@ -1855,7 +1867,7 @@ public class PApplet implements PConstants {
   * @param renderer the renderer to use, e.g. P2D, P3D, JAVA2D (default)
   * @see PApplet#settings()
   * @see PApplet#setup()
-  * @see PApplet#size()
+  * @see PApplet#size(int,int)
   * @see PApplet#smooth()
   */
   public void fullScreen(String renderer) {
@@ -1870,8 +1882,9 @@ public class PApplet implements PConstants {
 
 
   /**
-   * @param display the screen to run the sketch on (1, 2, 3, etc.)
+   * @param display the screen to run the sketch on (1, 2, 3, etc. or on multiple screens using SPAN)
    */
+
   public void fullScreen(String renderer, int display) {
     if (!fullScreen ||
         !renderer.equals(this.renderer) ||
@@ -2238,11 +2251,14 @@ public class PApplet implements PConstants {
           "specified with -Djava.library.path=/path/to/jogl");
 
       } else {
-        ite.getTargetException().printStackTrace();
+        printStackTrace(ite.getTargetException());
         Throwable target = ite.getTargetException();
+        /*
+        // removing for 3.2, we'll see
         if (platform == MACOSX) {
           target.printStackTrace(System.out);  // OS X bug (still true?)
         }
+        */
         throw new RuntimeException(target.getMessage());
       }
 
@@ -2269,16 +2285,18 @@ public class PApplet implements PConstants {
           throw new RuntimeException(e);
 
         } else {
-          e.printStackTrace();
+          printStackTrace(e);
           String msg = renderer + " needs to be updated " +
             "for the current release of Processing.";
           throw new RuntimeException(msg);
         }
       } else {
+        /*
         if (platform == MACOSX) {
           e.printStackTrace(System.out);  // OS X bug (still true?)
         }
-        e.printStackTrace();
+        */
+        printStackTrace(e);
         throw new RuntimeException(e.getMessage());
       }
     }
@@ -3366,9 +3384,9 @@ public class PApplet implements PConstants {
         launch(url);
       }
     } catch (IOException e) {
-      e.printStackTrace();
+      printStackTrace(e);
     } catch (URISyntaxException e) {
-      e.printStackTrace();
+      printStackTrace(e);
     }
   }
 
@@ -3411,7 +3429,7 @@ public class PApplet implements PConstants {
    *
    * ( end auto-generated )
    * @webref input:files
-   * @param filename name of the file
+   * @param args arguments to the launcher, eg. a filename.
    * @usage Application
    */
   static public Process launch(String... args) {
@@ -3466,12 +3484,32 @@ public class PApplet implements PConstants {
   }
 
 
+  /**
+   * Pass a set of arguments directly to the command line. Uses Java's
+   * <A HREF="https://docs.oracle.com/javase/8/docs/api/java/lang/Runtime.html#exec-java.lang.String:A-">Runtime.exec()</A>
+   * method. This is different from the <A HREF="https://processing.org/reference/launch_.html">launch()</A>
+   * method, which uses the operating system's launcher to open the files.
+   * It's always a good idea to use a full path to the executable here.
+   * <pre>
+   * exec("/usr/bin/say", "-v", "Pipe Organ", "welcome to the command line");
+   * </pre>
+   * Or if you want to wait until it's completed, something like this:
+   * <pre>
+   * Process p = exec("/usr/bin/say", "waiting until done");
+   * try {
+   *   int result = p.waitFor();
+   *   println("the process returned " + result);
+   * } catch (InterruptedException e) { }
+   * </pre>
+   * You can also get the system output and error streams from the Process
+   * object, but that's more that we'd like to cover here.
+   * @return a <A HREF="https://docs.oracle.com/javase/8/docs/api/java/lang/Process.html">Process</A> object
+   */
   static public Process exec(String... args) {
     try {
       return Runtime.getRuntime().exec(args);
     } catch (Exception e) {
-      e.printStackTrace();
-      throw new RuntimeException("Could not open " + join(args, ' '));
+      throw new RuntimeException("Could not open " + join(args, ' '), e);
     }
   }
 
@@ -3484,6 +3522,15 @@ public class PApplet implements PConstants {
 
 
   //////////////////////////////////////////////////////////////
+
+
+  /**
+   * Better way of handling e.printStackTrace() calls so that they can be
+   * handled by subclasses as necessary.
+   */
+  protected void printStackTrace(Throwable t) {
+    t.printStackTrace();
+  }
 
 
   /**
@@ -3589,6 +3636,18 @@ public class PApplet implements PConstants {
       // run dispose() methods registered by libraries
       handleMethods("dispose");
     }
+
+    if (platform == MACOSX) {
+      try {
+        final String td = "processing.core.ThinkDifferent";
+        final Class<?> thinkDifferent =
+          Thread.currentThread().getContextClassLoader().loadClass(td);
+        thinkDifferent.getMethod("cleanup").invoke(null);
+      } catch (Exception e) {
+        e.printStackTrace();
+      }
+    }
+
   }
 
 
@@ -4348,12 +4407,12 @@ public class PApplet implements PConstants {
   }
 
 
-  /**
-   * Find the maximum value in an array.
-   * Throws an ArrayIndexOutOfBoundsException if the array is length 0.
-   * @param list the source array
-   * @return The maximum value
-   */
+//  /**
+//   * Find the maximum value in an array.
+//   * Throws an ArrayIndexOutOfBoundsException if the array is length 0.
+//   * @param list the source array
+//   * @return The maximum value
+//   */
   /*
   static public final double max(double[] list) {
     if (list.length == 0) {
@@ -4920,7 +4979,13 @@ public class PApplet implements PConstants {
   public final float random(float low, float high) {
     if (low >= high) return low;
     float diff = high - low;
-    return random(diff) + low;
+    float value = 0;
+    // because of rounding error, can't just add low, otherwise it may hit high
+    // https://github.com/processing/processing/issues/4551
+    do {
+      value = random(diff) + low;
+    } while (value == high);
+    return value;
   }
 
 
@@ -5133,7 +5198,6 @@ public class PApplet implements PConstants {
    * ( end auto-generated )
    * @webref math:random
    * @param lod number of octaves to be used by the noise
-   * @param falloff falloff factor for each octave
    * @see PApplet#noise(float, float, float)
    */
   public void noiseDetail(int lod) {
@@ -5141,6 +5205,8 @@ public class PApplet implements PConstants {
   }
 
   /**
+   * @see #noiseDetail(int)
+   * @param lod number of octaves to be used by the noise
    * @param falloff falloff factor for each octave
    */
   public void noiseDetail(int lod, float falloff) {
@@ -5241,6 +5307,13 @@ public class PApplet implements PConstants {
    * @param extension type of image to load, for example "png", "gif", "jpg"
    */
   public PImage loadImage(String filename, String extension) { //, Object params) {
+
+    // await... has to run on the main thread, because P2D and P3D call GL functions
+    // If this runs on background, requestImage() already called await... on the main thread
+    if (g != null && !Thread.currentThread().getName().startsWith(ASYNC_IMAGE_LOADER_THREAD_PREFIX)) {
+      g.awaitAsyncSaveCompletion(filename);
+    }
+
     if (extension == null) {
       String lower = filename.toLowerCase();
       int dot = filename.lastIndexOf('.');
@@ -5268,7 +5341,7 @@ public class PApplet implements PConstants {
 //        }
         return image;
       } catch (IOException e) {
-        e.printStackTrace();
+        printStackTrace(e);
         return null;
       }
     }
@@ -5332,12 +5405,13 @@ public class PApplet implements PConstants {
 //          if (params != null) {
 //            image.setParams(g, params);
 //          }
+          image.parent = this;
           return image;
         }
       }
     } catch (Exception e) {
       // show error, but move on to the stuff below, see if it'll work
-      e.printStackTrace();
+      printStackTrace(e);
     }
 
     if (loadImageFormats == null) {
@@ -5391,6 +5465,11 @@ public class PApplet implements PConstants {
    * @see PApplet#loadImage(String, String)
    */
   public PImage requestImage(String filename, String extension) {
+    // Make sure saving to this file completes before trying to load it
+    // Has to be called on main thread, because P2D and P3D need GL functions
+    if (g != null) {
+      g.awaitAsyncSaveCompletion(filename);
+    }
     PImage vessel = createImage(0, 0, ARGB);
     AsyncImageLoader ail =
       new AsyncImageLoader(filename, extension, vessel);
@@ -5423,12 +5502,17 @@ public class PApplet implements PConstants {
   public int requestImageMax = 4;
   volatile int requestImageCount;
 
+  private static final String ASYNC_IMAGE_LOADER_THREAD_PREFIX = "ASYNC_IMAGE_LOADER";
+
   class AsyncImageLoader extends Thread {
     String filename;
     String extension;
     PImage vessel;
 
     public AsyncImageLoader(String filename, String extension, PImage vessel) {
+      // Give these threads distinct name so we can check whether we are loading
+      // on the main/background thread; for now they are all named the same
+      super(ASYNC_IMAGE_LOADER_THREAD_PREFIX);
       this.filename = filename;
       this.extension = extension;
       this.vessel = vessel;
@@ -5517,7 +5601,7 @@ public class PApplet implements PConstants {
       return outgoing;
 
     } catch (Exception e) {
-      e.printStackTrace();
+      printStackTrace(e);
       return null;
     }
   }
@@ -5794,7 +5878,7 @@ public class PApplet implements PConstants {
   /**
    * @webref input:files
    * @brief Converts String content to an XML object
-   * @param data the content to be parsed as XML
+   * @param xmlString the content to be parsed as XML
    * @return an XML object, or null
    * @see XML
    * @see PApplet#loadXML(String)
@@ -5866,6 +5950,8 @@ public class PApplet implements PConstants {
 
   /**
    * @webref output:files
+   * @param json the JSONObject to save
+   * @param filename the name of the file to save to
    * @see JSONObject
    * @see JSONArray
    * @see PApplet#loadJSONObject(String)
@@ -5877,7 +5963,7 @@ public class PApplet implements PConstants {
   }
 
   /**
-   * @nowebref
+   * @param options "compact" and "indent=N", replace N with the number of spaces
    */
   public boolean saveJSONObject(JSONObject json, String filename, String options) {
     return json.save(saveFile(filename), options);
@@ -5915,6 +6001,8 @@ public class PApplet implements PConstants {
 
   /**
    * @webref output:files
+   * @param json the JSONArray to save
+   * @param filename the name of the file to save to
    * @see JSONObject
    * @see JSONArray
    * @see PApplet#loadJSONObject(String)
@@ -5925,7 +6013,9 @@ public class PApplet implements PConstants {
     return saveJSONArray(json, filename, null);
   }
 
-
+  /**
+   * @param options "compact" and "indent=N", replace N with the number of spaces
+   */
   public boolean saveJSONArray(JSONArray json, String filename, String options) {
     return json.save(saveFile(filename), options);
   }
@@ -5989,7 +6079,7 @@ public class PApplet implements PConstants {
       return new Table(input, optionStr);
 
     } catch (IOException e) {
-      e.printStackTrace();
+      printStackTrace(e);
       return null;
     }
   }
@@ -6029,7 +6119,7 @@ public class PApplet implements PConstants {
       return table.save(outputFile, options);
 
     } catch (IOException e) {
-      e.printStackTrace();
+      printStackTrace(e);
       return false;
     }
   }
@@ -6160,6 +6250,9 @@ public class PApplet implements PConstants {
    */
   public PFont createFont(String name, float size,
                           boolean smooth, char[] charset) {
+    if (g == null) {
+      throw new RuntimeException("createFont() can only be used inside setup() or after setup() has been called.");
+    }
     return g.createFont(name, size, smooth, charset);
   }
 
@@ -6195,6 +6288,25 @@ public class PApplet implements PConstants {
   }
   */
 
+
+  static private boolean lookAndFeelCheck;
+
+  /**
+   * Initialize the Look & Feel if it hasn't been already.
+   * Call this before using any Swing-related code in PApplet methods.
+   */
+  static private void checkLookAndFeel() {
+    if (!lookAndFeelCheck) {
+      if (platform == WINDOWS) {
+        // Windows is defaulting to Metal or something else awful.
+        // Which also is not scaled properly with HiDPI interfaces.
+        try {
+          UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
+        } catch (Exception e) { }
+      }
+      lookAndFeelCheck = true;
+    }
+  }
 
   /**
    * Open a platform-specific file chooser dialog to select a file for input.
@@ -6408,6 +6520,7 @@ public class PApplet implements PConstants {
             selectedFile = new File(fileDialog.getDirectory(), fileDialog.getFile());
           }
         } else {
+          checkLookAndFeel();
           JFileChooser fileChooser = new JFileChooser();
           fileChooser.setDialogTitle(prompt);
           fileChooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
@@ -6445,6 +6558,133 @@ public class PApplet implements PConstants {
 
     } catch (NoSuchMethodException nsme) {
       System.err.println(callbackMethod + "() could not be found");
+    }
+  }
+
+
+
+  //////////////////////////////////////////////////////////////
+
+  // LISTING DIRECTORIES
+
+
+  public String[] listPaths(String path, String... options) {
+    File[] list = listFiles(path, options);
+
+    int offset = 0;
+    for (String opt : options) {
+      if (opt.equals("relative")) {
+        if (!path.endsWith(File.pathSeparator)) {
+          path += File.pathSeparator;
+        }
+        offset = path.length();
+        break;
+      }
+    }
+    String[] outgoing = new String[list.length];
+    for (int i = 0; i < list.length; i++) {
+      // as of Java 1.8, substring(0) returns the original object
+      outgoing[i] = list[i].getAbsolutePath().substring(offset);
+    }
+    return outgoing;
+  }
+
+
+  public File[] listFiles(String path, String... options) {
+    File file = new File(path);
+    // if not an absolute path, make it relative to the sketch folder
+    if (!file.isAbsolute()) {
+      file = sketchFile(path);
+    }
+    return listFiles(file, options);
+  }
+
+
+  // "relative" -> no effect with the Files version, but important for listPaths
+  // "recursive"
+  // "extension=js" or "extensions=js|csv|txt" (no dot)
+  // "directories" -> only directories
+  // "files" -> only files
+  // "hidden" -> include hidden files (prefixed with .) disabled by default
+  static public File[] listFiles(File base, String... options) {
+    boolean recursive = false;
+    String[] extensions = null;
+    boolean directories = true;
+    boolean files = true;
+    boolean hidden = false;
+
+    for (String opt : options) {
+      if (opt.equals("recursive")) {
+        recursive = true;
+      } else if (opt.startsWith("extension=")) {
+        extensions = new String[] { opt.substring(10) };
+      } else if (opt.startsWith("extensions=")) {
+        extensions = split(opt.substring(10), ',');
+      } else if (opt.equals("files")) {
+        directories = false;
+      } else if (opt.equals("directories")) {
+        files = false;
+      } else if (opt.equals("hidden")) {
+        hidden = true;
+      } else if (opt.equals("relative")) {
+        // ignored
+      } else {
+        throw new RuntimeException(opt + " is not a listFiles() option");
+      }
+    }
+
+    if (extensions != null) {
+      for (int i = 0; i < extensions.length; i++) {
+        extensions[i] = "." + extensions[i];
+      }
+    }
+
+    if (!files && !directories) {
+      // just make "only files" and "only directories" mean... both
+      files = true;
+      directories = true;
+    }
+
+    if (!base.canRead()) {
+      return null;
+    }
+
+    List<File> outgoing = new ArrayList<>();
+    listFilesImpl(base, recursive, extensions, hidden, directories, files, outgoing);
+    return outgoing.toArray(new File[0]);
+  }
+
+
+  static void listFilesImpl(File folder, boolean recursive,
+                            String[] extensions, boolean hidden,
+                            boolean directories, boolean files,
+                            List<File> list) {
+    File[] items = folder.listFiles();
+    if (items != null) {
+      for (File item : items) {
+        String name = item.getName();
+        if (!hidden && name.charAt(0) == '.') {
+          continue;
+        }
+        if (item.isDirectory()) {
+          if (recursive) {
+            listFilesImpl(item, recursive, extensions, hidden, directories, files, list);
+          }
+          if (directories) {
+            list.add(item);
+          }
+        } else if (files) {
+          if (extensions == null) {
+            list.add(item);
+          } else {
+            for (String ext : extensions) {
+              if (item.getName().toLowerCase().endsWith(ext)) {
+                list.add(item);
+              }
+            }
+          }
+        }
+      }
     }
   }
 
@@ -6502,7 +6742,10 @@ public class PApplet implements PConstants {
   public BufferedReader createReader(String filename) {
     InputStream is = createInput(filename);
     if (is == null) {
-      System.err.println(filename + " does not exist or could not be read");
+      System.err.println("The file \"" + filename + "\" " +
+                       "is missing or inaccessible, make sure " +
+                       "the URL is valid or that the file has been " +
+                       "added to your sketch and is readable.");
       return null;
     }
     return createReader(is);
@@ -6533,11 +6776,22 @@ public class PApplet implements PConstants {
    * following lines any more I'm gonna send Sun my medical bills.
    */
   static public BufferedReader createReader(InputStream input) {
-    InputStreamReader isr = null;
+    InputStreamReader isr =
+      new InputStreamReader(input, StandardCharsets.UTF_8);
+
+    BufferedReader reader = new BufferedReader(isr);
+    // consume the Unicode BOM (byte order marker) if present
     try {
-      isr = new InputStreamReader(input, "UTF-8");
-    } catch (UnsupportedEncodingException e) { }  // not gonna happen
-    return new BufferedReader(isr);
+      reader.mark(1);
+      int c = reader.read();
+      // if not the BOM, back up to the beginning again
+      if (c != '\uFEFF') {
+        reader.reset();
+      }
+    } catch (IOException e) {
+      e.printStackTrace();
+    }
+    return reader;
   }
 
 
@@ -6596,12 +6850,10 @@ public class PApplet implements PConstants {
    * It's the JavaSoft API engineers who need to explain themselves.
    */
   static public PrintWriter createWriter(OutputStream output) {
-    try {
-      BufferedOutputStream bos = new BufferedOutputStream(output, 8192);
-      OutputStreamWriter osw = new OutputStreamWriter(bos, "UTF-8");
-      return new PrintWriter(osw);
-    } catch (UnsupportedEncodingException e) { }  // not gonna happen
-    return null;
+    BufferedOutputStream bos = new BufferedOutputStream(output, 8192);
+    OutputStreamWriter osw =
+      new OutputStreamWriter(bos, StandardCharsets.UTF_8);
+    return new PrintWriter(osw);
   }
 
 
@@ -6685,8 +6937,8 @@ public class PApplet implements PConstants {
    * @webref input:files
    * @param filename the name of the file to use as input
    * @see PApplet#createOutput(String)
-   * @see PApplet#selectOutput(String)
-   * @see PApplet#selectInput(String)
+   * @see PApplet#selectOutput(String,String)
+   * @see PApplet#selectInput(String,String)
    *
    */
   public InputStream createInput(String filename) {
@@ -6695,13 +6947,14 @@ public class PApplet implements PConstants {
     if ((input != null) &&
         (lower.endsWith(".gz") || lower.endsWith(".svgz"))) {
       try {
-        return new GZIPInputStream(input);
+        // buffered has to go *around* the GZ, otherwise 25x slower
+        return new BufferedInputStream(new GZIPInputStream(input));
       } catch (IOException e) {
-        e.printStackTrace();
+        printStackTrace(e);
         return null;
       }
     }
-    return input;
+    return new BufferedInputStream(input);
   }
 
 
@@ -6752,7 +7005,7 @@ public class PApplet implements PConstants {
 
       } catch (IOException e) {
         // changed for 0117, shouldn't be throwing exception
-        e.printStackTrace();
+        printStackTrace(e);
         //System.err.println("Error downloading from URL " + filename);
         return null;
         //throw new RuntimeException("Error downloading from URL " + filename);
@@ -6858,12 +7111,12 @@ public class PApplet implements PConstants {
       } catch (SecurityException se) { }  // online, whups
 
     } catch (Exception e) {
-      //die(e.getMessage(), e);
-      e.printStackTrace();
+      printStackTrace(e);
     }
 
     return null;
   }
+
 
   /**
    * @nowebref
@@ -6875,9 +7128,9 @@ public class PApplet implements PConstants {
     try {
       InputStream input = new FileInputStream(file);
       if (file.getName().toLowerCase().endsWith(".gz")) {
-        return new GZIPInputStream(input);
+        return new BufferedInputStream(new GZIPInputStream(input));
       }
-      return input;
+      return new BufferedInputStream(input);
 
     } catch (IOException e) {
       System.err.println("Could not createInput() for " + file);
@@ -6915,7 +7168,7 @@ public class PApplet implements PConstants {
       try {
         is.close();
       } catch (IOException e) {
-        e.printStackTrace();  // shouldn't happen
+        printStackTrace(e);  // shouldn't happen
       }
       return outgoing;
     }
@@ -7031,7 +7284,7 @@ public class PApplet implements PConstants {
       try {
         is.close();
       } catch (IOException e) {
-        e.printStackTrace();
+        printStackTrace(e);
       }
       return strArr;
     }
@@ -7119,7 +7372,7 @@ public class PApplet implements PConstants {
    * @webref output:files
    * @param filename name of the file to open
    * @see PApplet#createInput(String)
-   * @see PApplet#selectOutput()
+   * @see PApplet#selectOutput(String,String)
    */
   public OutputStream createOutput(String filename) {
     return createOutput(saveFile(filename));
@@ -7131,11 +7384,11 @@ public class PApplet implements PConstants {
   static public OutputStream createOutput(File file) {
     try {
       createPath(file);  // make sure the path exists
-      FileOutputStream fos = new FileOutputStream(file);
+      OutputStream output = new FileOutputStream(file);
       if (file.getName().toLowerCase().endsWith(".gz")) {
-        return new GZIPOutputStream(fos);
+        return new BufferedOutputStream(new GZIPOutputStream(output));
       }
-      return fos;
+      return new BufferedOutputStream(output);
 
     } catch (IOException e) {
       e.printStackTrace();
@@ -7387,10 +7640,10 @@ public class PApplet implements PConstants {
     try {
       folder = System.getProperty("user.dir");
 
-      String jarPath =
-        PApplet.class.getProtectionDomain().getCodeSource().getLocation().getPath();
-      // The jarPath from above will be URL encoded (%20 for spaces)
-      jarPath = urlDecode(jarPath);
+      URL jarURL =
+          PApplet.class.getProtectionDomain().getCodeSource().getLocation();
+      // Decode URL
+      String jarPath = jarURL.toURI().getSchemeSpecificPart();
 
       // Workaround for bug in Java for OS X from Oracle (7u51)
       // https://github.com/processing/processing/issues/2181
@@ -7541,12 +7794,17 @@ public class PApplet implements PConstants {
     File why = new File(where);
     if (why.isAbsolute()) return why;
 
-    String jarPath =
-      getClass().getProtectionDomain().getCodeSource().getLocation().getPath();
+    URL jarURL = getClass().getProtectionDomain().getCodeSource().getLocation();
+    // Decode URL
+    String jarPath;
+    try {
+      jarPath = jarURL.toURI().getPath();
+    } catch (URISyntaxException e) {
+      e.printStackTrace();
+      return null;
+    }
     if (jarPath.contains("Contents/Java/")) {
-      // The path will be URL encoded (%20 for spaces) coming from above
-      // http://code.google.com/p/processing/issues/detail?id=1073
-      File containingFolder = new File(urlDecode(jarPath)).getParentFile();
+      File containingFolder = new File(jarPath).getParentFile();
       File dataFolder = new File(containingFolder, "data");
       return new File(dataFolder, where);
     }
@@ -7602,7 +7860,7 @@ public class PApplet implements PConstants {
     String lower = filename.toLowerCase();
     int dot = filename.lastIndexOf('.');
     if (dot == -1) {
-      extension = "unknown";  // no extension found
+      return "";  // no extension found
     }
     extension = lower.substring(dot + 1);
 
@@ -7631,6 +7889,11 @@ public class PApplet implements PConstants {
   }
 
 
+  // DO NOT use for file paths, URLDecoder can't handle RFC2396
+  // "The recommended way to manage the encoding and decoding of
+  // URLs is to use URI, and to convert between these two classes
+  // using toURI() and URI.toURL()."
+  // https://docs.oracle.com/javase/8/docs/api/java/net/URL.html
   static public String urlDecode(String str) {
     try {
       return URLDecoder.decode(str, "UTF-8");
@@ -7814,7 +8077,7 @@ public class PApplet implements PConstants {
    * @see PApplet#shorten(boolean[])
    */
   static public boolean[] expand(boolean list[]) {
-    return expand(list, list.length << 1);
+    return expand(list, list.length > 0 ? list.length << 1 : 1);
   }
 
   /**
@@ -7827,7 +8090,7 @@ public class PApplet implements PConstants {
   }
 
   static public byte[] expand(byte list[]) {
-    return expand(list, list.length << 1);
+    return expand(list, list.length > 0 ? list.length << 1 : 1);
   }
 
   static public byte[] expand(byte list[], int newSize) {
@@ -7837,7 +8100,7 @@ public class PApplet implements PConstants {
   }
 
   static public char[] expand(char list[]) {
-    return expand(list, list.length << 1);
+    return expand(list, list.length > 0 ? list.length << 1 : 1);
   }
 
   static public char[] expand(char list[], int newSize) {
@@ -7847,7 +8110,7 @@ public class PApplet implements PConstants {
   }
 
   static public int[] expand(int list[]) {
-    return expand(list, list.length << 1);
+    return expand(list, list.length > 0 ? list.length << 1 : 1);
   }
 
   static public int[] expand(int list[], int newSize) {
@@ -7857,7 +8120,7 @@ public class PApplet implements PConstants {
   }
 
   static public long[] expand(long list[]) {
-    return expand(list, list.length << 1);
+    return expand(list, list.length > 0 ? list.length << 1 : 1);
   }
 
   static public long[] expand(long list[], int newSize) {
@@ -7867,7 +8130,7 @@ public class PApplet implements PConstants {
   }
 
   static public float[] expand(float list[]) {
-    return expand(list, list.length << 1);
+    return expand(list, list.length > 0 ? list.length << 1 : 1);
   }
 
   static public float[] expand(float list[], int newSize) {
@@ -7877,7 +8140,7 @@ public class PApplet implements PConstants {
   }
 
   static public double[] expand(double list[]) {
-    return expand(list, list.length << 1);
+    return expand(list, list.length > 0 ? list.length << 1 : 1);
   }
 
   static public double[] expand(double list[], int newSize) {
@@ -7887,7 +8150,7 @@ public class PApplet implements PConstants {
   }
 
   static public String[] expand(String list[]) {
-    return expand(list, list.length << 1);
+    return expand(list, list.length > 0 ? list.length << 1 : 1);
   }
 
   static public String[] expand(String list[], int newSize) {
@@ -7901,7 +8164,8 @@ public class PApplet implements PConstants {
   * @nowebref
   */
   static public Object expand(Object array) {
-    return expand(array, Array.getLength(array) << 1);
+    int len = Array.getLength(array);
+    return expand(array, len > 0 ? len << 1 : 1);
   }
 
   static public Object expand(Object list, int newSize) {
@@ -8447,6 +8711,9 @@ public class PApplet implements PConstants {
    * @see PApplet#join(String[], char)
    */
   static public String trim(String str) {
+    if (str == null) {
+      return null;
+    }
     return str.replace('\u00A0', ' ').trim();
   }
 
@@ -8455,10 +8722,13 @@ public class PApplet implements PConstants {
   * @param array a String array
   */
   static public String[] trim(String[] array) {
+    if (array == null) {
+      return null;
+    }
     String[] outgoing = new String[array.length];
     for (int i = 0; i < array.length; i++) {
       if (array[i] != null) {
-        outgoing[i] = array[i].replace('\u00A0', ' ').trim();
+        outgoing[i] = trim(array[i]);
       }
     }
     return outgoing;
@@ -9261,7 +9531,6 @@ public class PApplet implements PConstants {
 
   // INT NUMBER FORMATTING
 
-
   static public String nf(float num) {
     int inum = (int) num;
     if (num == inum) {
@@ -9270,30 +9539,21 @@ public class PApplet implements PConstants {
     return str(num);
   }
 
-
-  static public String[] nf(float[] num) {
-    String[] outgoing = new String[num.length];
-    for (int i = 0; i < num.length; i++) {
-      outgoing[i] = nf(num[i]);
+  static public String[] nf(float[] nums) {
+    String[] outgoing = new String[nums.length];
+    for (int i = 0; i < nums.length; i++) {
+      outgoing[i] = nf(nums[i]);
     }
     return outgoing;
   }
 
-
   /**
    * Integer number formatter.
    */
+
   static private NumberFormat int_nf;
   static private int int_nf_digits;
   static private boolean int_nf_commas;
-
-  static public String[] nf(int num[], int digits) {
-    String formatted[] = new String[num.length];
-    for (int i = 0; i < formatted.length; i++) {
-      formatted[i] = nf(num[i], digits);
-    }
-    return formatted;
-  }
 
   /**
    * ( begin auto-generated from nf.xml )
@@ -9310,12 +9570,24 @@ public class PApplet implements PConstants {
    *
    * ( end auto-generated )
    * @webref data:string_functions
-   * @param num the number(s) to format
+   * @param nums the numbers to format
    * @param digits number of digits to pad with zero
    * @see PApplet#nfs(float, int, int)
    * @see PApplet#nfp(float, int, int)
    * @see PApplet#nfc(float, int)
-   * @see PApplet#int(float)
+   * @see <a href="https://processing.org/reference/intconvert_.html">int(float)</a>
+   */
+
+  static public String[] nf(int nums[], int digits) {
+    String formatted[] = new String[nums.length];
+    for (int i = 0; i < formatted.length; i++) {
+      formatted[i] = nf(nums[i], digits);
+    }
+    return formatted;
+  }
+
+  /**
+   * @param num the number to format
    */
   static public String nf(int num, int digits) {
     if ((int_nf != null) &&
@@ -9332,38 +9604,35 @@ public class PApplet implements PConstants {
     return int_nf.format(num);
   }
 
-/**
+  /**
    * ( begin auto-generated from nfc.xml )
    *
    * Utility function for formatting numbers into strings and placing
    * appropriate commas to mark units of 1000. There are two versions, one
    * for formatting ints and one for formatting an array of ints. The value
    * for the <b>digits</b> parameter should always be a positive integer.
-   * <br/> <br/>
+   * <br/><br/>
    * For a non-US locale, this will insert periods instead of commas, or
    * whatever is apprioriate for that region.
    *
    * ( end auto-generated )
- * @webref data:string_functions
- * @param num the number(s) to format
- * @see PApplet#nf(float, int, int)
- * @see PApplet#nfp(float, int, int)
- * @see PApplet#nfs(float, int, int)
- */
-  static public String[] nfc(int num[]) {
-    String formatted[] = new String[num.length];
+   * @webref data:string_functions
+   * @param nums the numbers to format
+   * @see PApplet#nf(float, int, int)
+   * @see PApplet#nfp(float, int, int)
+   * @see PApplet#nfs(float, int, int)
+   */
+  static public String[] nfc(int nums[]) {
+    String formatted[] = new String[nums.length];
     for (int i = 0; i < formatted.length; i++) {
-      formatted[i] = nfc(num[i]);
+      formatted[i] = nfc(nums[i]);
     }
     return formatted;
   }
 
 
   /**
-   * nfc() or "number format with commas". This is an unfortunate misnomer
-   * because in locales where a comma is not the separator for numbers, it
-   * won't actually be outputting a comma, it'll use whatever makes sense for
-   * the locale.
+   * @param num the number to format
    */
   static public String nfc(int num) {
     if ((int_nf != null) &&
@@ -9400,7 +9669,7 @@ public class PApplet implements PConstants {
    *
    * ( end auto-generated )
   * @webref data:string_functions
-  * @param num the number(s) to format
+  * @param num the number to format
   * @param digits number of digits to pad with zeroes
   * @see PApplet#nf(float, int, int)
   * @see PApplet#nfp(float, int, int)
@@ -9410,10 +9679,13 @@ public class PApplet implements PConstants {
     return (num < 0) ? nf(num, digits) : (' ' + nf(num, digits));
   }
 
-  static public String[] nfs(int num[], int digits) {
-    String formatted[] = new String[num.length];
+  /**
+   * @param nums the numbers to format
+   */
+  static public String[] nfs(int nums[], int digits) {
+    String formatted[] = new String[nums.length];
     for (int i = 0; i < formatted.length; i++) {
-      formatted[i] = nfs(num[i], digits);
+      formatted[i] = nfs(nums[i], digits);
     }
     return formatted;
   }
@@ -9436,7 +9708,7 @@ public class PApplet implements PConstants {
    *
    * ( end auto-generated )
   * @webref data:string_functions
-  * @param num the number(s) to format
+  * @param num the number to format
   * @param digits number of digits to pad with zeroes
   * @see PApplet#nf(float, int, int)
   * @see PApplet#nfs(float, int, int)
@@ -9445,11 +9717,13 @@ public class PApplet implements PConstants {
   static public String nfp(int num, int digits) {
     return (num < 0) ? nf(num, digits) : ('+' + nf(num, digits));
   }
-
-  static public String[] nfp(int num[], int digits) {
-    String formatted[] = new String[num.length];
+  /**
+   * @param nums the numbers to format
+   */
+  static public String[] nfp(int nums[], int digits) {
+    String formatted[] = new String[nums.length];
     for (int i = 0; i < formatted.length; i++) {
-      formatted[i] = nfp(num[i], digits);
+      formatted[i] = nfp(nums[i], digits);
     }
     return formatted;
   }
@@ -9460,23 +9734,22 @@ public class PApplet implements PConstants {
 
   // FLOAT NUMBER FORMATTING
 
-
   static private NumberFormat float_nf;
   static private int float_nf_left, float_nf_right;
   static private boolean float_nf_commas;
 
-  static public String[] nf(float num[], int left, int right) {
-    String formatted[] = new String[num.length];
+  /**
+   * @param left number of digits to the left of the decimal point
+   * @param right number of digits to the right of the decimal point
+   */
+  static public String[] nf(float nums[], int left, int right) {
+    String formatted[] = new String[nums.length];
     for (int i = 0; i < formatted.length; i++) {
-      formatted[i] = nf(num[i], left, right);
+      formatted[i] = nf(nums[i], left, right);
     }
     return formatted;
   }
-/**
- * @param num[] the number(s) to format
- * @param left number of digits to the left of the decimal point
- * @param right number of digits to the right of the decimal point
- */
+
   static public String nf(float num, int left, int right) {
     if ((float_nf != null) &&
         (float_nf_left == left) &&
@@ -9499,18 +9772,16 @@ public class PApplet implements PConstants {
     return float_nf.format(num);
   }
 
-/**
- * @param num[] the number(s) to format
- * @param right number of digits to the right of the decimal point
- */
-  static public String[] nfc(float num[], int right) {
-    String formatted[] = new String[num.length];
+  /**
+   * @param right number of digits to the right of the decimal point
+  */
+  static public String[] nfc(float nums[], int right) {
+    String formatted[] = new String[nums.length];
     for (int i = 0; i < formatted.length; i++) {
-      formatted[i] = nfc(num[i], right);
+      formatted[i] = nfc(nums[i], right);
     }
     return formatted;
   }
-
 
   static public String nfc(float num, int right) {
     if ((float_nf != null) &&
@@ -9535,14 +9806,13 @@ public class PApplet implements PConstants {
 
 
  /**
-  * @param num[] the number(s) to format
   * @param left the number of digits to the left of the decimal point
   * @param right the number of digits to the right of the decimal point
   */
-  static public String[] nfs(float num[], int left, int right) {
-    String formatted[] = new String[num.length];
+  static public String[] nfs(float nums[], int left, int right) {
+    String formatted[] = new String[nums.length];
     for (int i = 0; i < formatted.length; i++) {
-      formatted[i] = nfs(num[i], left, right);
+      formatted[i] = nfs(nums[i], left, right);
     }
     return formatted;
   }
@@ -9555,10 +9825,10 @@ public class PApplet implements PConstants {
   * @param left the number of digits to the left of the decimal point
   * @param right the number of digits to the right of the decimal point
   */
-  static public String[] nfp(float num[], int left, int right) {
-    String formatted[] = new String[num.length];
+  static public String[] nfp(float nums[], int left, int right) {
+    String formatted[] = new String[nums.length];
     for (int i = 0; i < formatted.length; i++) {
-      formatted[i] = nfp(num[i], left, right);
+      formatted[i] = nfp(nums[i], left, right);
     }
     return formatted;
   }
@@ -9998,6 +10268,15 @@ public class PApplet implements PConstants {
 
 
   /**
+   * Convenience method so that PApplet.main(YourSketch.class)
+   * launches a sketch, rather than having to call getName() on it.
+   */
+  static public void main(final Class<?> mainClass, String... args) {
+    main(mainClass.getName(), args);
+  }
+
+
+  /**
    * Convenience method so that PApplet.main("YourSketch") launches a sketch,
    * rather than having to wrap it into a single element String array.
    * @param mainClass name of the class to load (with package if any)
@@ -10012,9 +10291,9 @@ public class PApplet implements PConstants {
    * sketch, rather than having to wrap it into a String array, and appending
    * the 'args' array when not null.
    * @param mainClass name of the class to load (with package if any)
-   * @param args command line arguments to pass to the sketch's 'args' array.
-   *             Note that this is *not* the same as the args passed to (and
-   *             understood by) PApplet such as --display.
+   * @param sketchArgs command line arguments to pass to the sketch's 'args'
+   *             array. Note that this is <i>not</i> the same as the args passed
+   *             to (and understood by) PApplet such as --display.
    */
   static public void main(final String mainClass, final String[] sketchArgs) {
     String[] args = new String[] { mainClass };
@@ -10051,6 +10330,13 @@ public class PApplet implements PConstants {
 
     // Remove 60fps limit on the JavaFX "pulse" timer
     System.setProperty("javafx.animation.fullspeed", "true");
+
+    Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
+      public void uncaughtException(Thread t, Throwable e) {
+        e.printStackTrace();
+        uncaughtThrowable = e;
+      }
+    });
 
     // This doesn't work, need to mess with Info.plist instead
     /*
@@ -11138,9 +11424,9 @@ public class PApplet implements PConstants {
   /**
    * ( begin auto-generated from clip.xml )
    *
-   * Limits the rendering to the boundaries of a rectangle defined 
-   * by the parameters. The boundaries are drawn based on the state 
-   * of the <b>imageMode()</b> fuction, either CORNER, CORNERS, or CENTER. 
+   * Limits the rendering to the boundaries of a rectangle defined
+   * by the parameters. The boundaries are drawn based on the state
+   * of the <b>imageMode()</b> fuction, either CORNER, CORNERS, or CENTER.
    *
    * ( end auto-generated )
    *
@@ -11319,6 +11605,7 @@ public class PApplet implements PConstants {
    * @webref shape:2d_primitives
    * @param x x-coordinate of the point
    * @param y y-coordinate of the point
+   * @see PGraphics#stroke(int)
    */
   public void point(float x, float y) {
     if (recorder != null) recorder.point(x, y);
@@ -12090,8 +12377,8 @@ public class PApplet implements PConstants {
    *
    * @webref image:loading_displaying
    * @param img the image to display
-   * @param a x-coordinate of the image
-   * @param b y-coordinate of the image
+   * @param a x-coordinate of the image by default
+   * @param b y-coordinate of the image by default
    * @see PApplet#loadImage(String, String)
    * @see PImage
    * @see PGraphics#imageMode(int)
@@ -12106,8 +12393,8 @@ public class PApplet implements PConstants {
 
 
   /**
-   * @param c width to display the image
-   * @param d height to display the image
+   * @param c width to display the image by default
+   * @param d height to display the image by default
    */
   public void image(PImage img, float a, float b, float c, float d) {
     if (recorder != null) recorder.image(img, a, b, c, d);
@@ -14993,8 +15280,8 @@ public class PApplet implements PConstants {
    *
    * @webref pimage:method
    * @usage web_application
+   * @param img image to use as the mask
    * @brief Masks part of an image with another image as an alpha channel
-   * @param maskArray array of integers used as the alpha channel, needs to be the same length as the image's pixel array
    */
   public void mask(PImage img) {
     if (recorder != null) recorder.mask(img);

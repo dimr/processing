@@ -1410,7 +1410,7 @@ public class PShapeOpenGL extends PShape {
       }
       break;
     }
-    matrix.apply(transform);
+    matrix.preApply(transform);
     pushTransform();
     if (tessellated) applyMatrixImpl(transform);
   }
@@ -1664,7 +1664,10 @@ public class PShapeOpenGL extends PShape {
       }
       vertices[index][X] = x;
       vertices[index][Y] = y;
-      if (is3D) vertices[index][Z] = z;
+      if (is3D && vertices[index].length > 2) {
+        // P3D allows to modify 2D shapes, ignoring the Z coordinate.
+        vertices[index][Z] = z;
+      }
     } else {
       inGeo.vertices[3 * index + 0] = x;
       inGeo.vertices[3 * index + 1] = y;
@@ -1681,9 +1684,22 @@ public class PShapeOpenGL extends PShape {
       return;
     }
 
-    inGeo.vertices[3 * index + 0] = vec.x;
-    inGeo.vertices[3 * index + 1] = vec.y;
-    inGeo.vertices[3 * index + 2] = vec.z;
+    if (family == PATH) {
+      if (vertexCodes != null && vertexCodeCount > 0 &&
+          vertexCodes[index] != VERTEX) {
+        PGraphics.showWarning(NOT_A_SIMPLE_VERTEX, "setVertex()");
+        return;
+      }
+      vertices[index][X] = vec.x;
+      vertices[index][Y] = vec.y;
+      if (is3D && vertices[index].length > 2) {
+        vertices[index][Z] = vec.z;
+      }
+    } else {
+      inGeo.vertices[3 * index + 0] = vec.x;
+      inGeo.vertices[3 * index + 1] = vec.y;
+      inGeo.vertices[3 * index + 2] = vec.z;
+    }
     markForTessellation();
   }
 
@@ -2013,13 +2029,31 @@ public class PShapeOpenGL extends PShape {
         PShapeOpenGL child = (PShapeOpenGL) children[i];
         child.setStroke(stroke);
       }
-    } else if (this.stroke != stroke) {
+      this.stroke = stroke;
+    } else {
+      setStrokeImpl(stroke);
+    }
+  }
+
+
+  protected void setStrokeImpl(boolean stroke) {
+    if (this.stroke != stroke) {
+      if (stroke) {
+        // Before there was no stroke, now there is stroke, so current stroke
+        // color should be copied to the input geometry, and geometry should
+        // be marked as modified in case it needs to be re-tessellated.
+        int color = strokeColor;
+        strokeColor += 1; // Forces a color change
+        setStrokeImpl(color);
+      }
+
       markForTessellation();
       if (is2D() && parent != null) {
         ((PShapeOpenGL)parent).strokedTexture(stroke && image != null);
       }
+
+      this.stroke = stroke;
     }
-    this.stroke = stroke;
   }
 
 
@@ -4646,10 +4680,99 @@ public class PShapeOpenGL extends PShape {
         post(gl);
       }
     } else {
-      // The renderer is not PGraphicsOpenGL, which probably means that
-      // the draw() method is being called by the recorder. We just use
-      // the default draw implementation from the parent class.
-      super.draw(g);
+      if (family == GEOMETRY) {
+        inGeoToVertices();
+      }
+      pre(g);
+      drawImpl(g);
+      post(g);
+    }
+  }
+
+
+  private void inGeoToVertices() {
+    vertexCount = 0;
+    vertexCodeCount = 0;
+    if (inGeo.codeCount == 0) {
+      for (int i = 0; i < inGeo.vertexCount; i++) {
+        int index = 3 * i;
+        float x = inGeo.vertices[index++];
+        float y = inGeo.vertices[index  ];
+        super.vertex(x, y);
+      }
+    } else {
+      int v;
+      float x, y;
+      float cx, cy;
+      float x2, y2, x3, y3, x4, y4;
+      int idx = 0;
+      boolean insideContour = false;
+
+      for (int j = 0; j < inGeo.codeCount; j++) {
+        switch (inGeo.codes[j]) {
+
+        case VERTEX:
+          v = 3 * idx;
+          x = inGeo.vertices[v++];
+          y = inGeo.vertices[v  ];
+          super.vertex(x, y);
+
+          idx++;
+          break;
+
+        case QUADRATIC_VERTEX:
+          v = 3 * idx;
+          cx = inGeo.vertices[v++];
+          cy = inGeo.vertices[v];
+
+          v = 3 * (idx + 1);
+          x3 = inGeo.vertices[v++];
+          y3 = inGeo.vertices[v];
+
+          super.quadraticVertex(cx, cy, x3, y3);
+
+          idx += 2;
+          break;
+
+        case BEZIER_VERTEX:
+          v = 3 * idx;
+          x2 = inGeo.vertices[v++];
+          y2 = inGeo.vertices[v  ];
+
+          v = 3 * (idx + 1);
+          x3 = inGeo.vertices[v++];
+          y3 = inGeo.vertices[v  ];
+
+          v = 3 * (idx + 2);
+          x4 = inGeo.vertices[v++];
+          y4 = inGeo.vertices[v  ];
+
+          super.bezierVertex(x2, y2, x3, y3, x4, y4);
+
+          idx += 3;
+          break;
+
+        case CURVE_VERTEX:
+          v = 3 * idx;
+          x = inGeo.vertices[v++];
+          y = inGeo.vertices[v  ];
+
+          super.curveVertex(x, y);
+
+          idx++;
+          break;
+
+        case BREAK:
+          if (insideContour) {
+            super.endContourImpl();
+          }
+          super.beginContourImpl();
+          insideContour = true;
+        }
+      }
+      if (insideContour) {
+        super.endContourImpl();
+      }
     }
   }
 

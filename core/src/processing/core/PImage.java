@@ -345,8 +345,8 @@ public class PImage implements PConstants, Cloneable {
   /**
    * Use the getNative() method instead, which allows library interfaces to be
    * written in a cross-platform fashion for desktop, Android, and others.
+   * This is still included for PGraphics objects, which may need the image.
    */
-  @Deprecated
   public Image getImage() {  // ignore
     return (Image) getNative();
   }
@@ -937,6 +937,10 @@ public class PImage implements PConstants, Cloneable {
 
 
   @Deprecated
+  /**
+   * @param maskArray array of integers used as the alpha channel, needs to be
+   * the same length as the image's pixel array.
+   */
   public void mask(int maskArray[]) {  // ignore
     loadPixels();
     // don't execute if mask image is different size
@@ -983,8 +987,8 @@ public class PImage implements PConstants, Cloneable {
    *
    * @webref pimage:method
    * @usage web_application
+   * @param img image to use as the mask
    * @brief Masks part of an image with another image as an alpha channel
-   * @param maskArray array of integers used as the alpha channel, needs to be the same length as the image's pixel array
    */
   public void mask(PImage img) {
     img.loadPixels();
